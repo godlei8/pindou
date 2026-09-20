@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -43,6 +44,27 @@ class Settings(BaseSettings):
         return v
 
 
+def _export_env_file() -> None:
+    """把 .env 里的键灌进 os.environ（已存在的不覆盖）。
+
+    pydantic-settings 只把 .env 读进 Settings 对象，不进 os.environ。
+    而 provider 的 API key 是按 `api_key_env` 指定的变量名从 os.environ 取的
+    （这样 Docker 里直接传环境变量即可），本地开发就读不到 .env 里的 key 了。
+    """
+    env_file = _BACKEND_ROOT / ".env"
+    if not env_file.exists():
+        return
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key and key not in os.environ:
+            os.environ[key] = value.strip()
+
+
 @lru_cache
 def get_settings() -> Settings:
+    _export_env_file()
     return Settings()

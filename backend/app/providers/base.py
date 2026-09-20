@@ -85,18 +85,33 @@ def build_provider(cfg: ProviderConfig) -> ImageProvider:
     raise ProviderError(f"未知的 provider adapter: {cfg.adapter!r}", retryable=False)
 
 
+def has_key(cfg: ProviderConfig) -> bool:
+    return cfg.adapter == "fake" or bool(os.environ.get(cfg.api_key_env, ""))
+
+
 def get_provider(name: str | None = None) -> ImageProvider:
+    """按名取 provider；不指定名字时，挑第一个**真的配了 key** 的。
+
+    providers.yaml 常常是从样例复制来的、同时列着几家，而用户往往只有其中
+    一家的 key。盲选第一条会让整个 AI 功能因为一个无关条目而不可用。
+    显式点名的情况不做这种兜底——那是配置错误，应当明确报错。
+    """
     from app.providers.fake import FakeProvider
 
     cfgs = _configs()
     if not cfgs:
         return FakeProvider()
-    if name is None:
-        name = next(iter(cfgs))
-    cfg = cfgs.get(name)
-    if cfg is None:
-        raise ProviderError(f"未配置的 provider: {name!r}", retryable=False)
-    return build_provider(cfg)
+
+    if name is not None:
+        cfg = cfgs.get(name)
+        if cfg is None:
+            raise ProviderError(f"未配置的 provider: {name!r}", retryable=False)
+        return build_provider(cfg)
+
+    usable = next((c for c in cfgs.values() if has_key(c)), None)
+    if usable is None:
+        return FakeProvider()
+    return build_provider(usable)
 
 
 def call_with_retry(provider: ImageProvider, image: bytes, prompt: str, params: dict,

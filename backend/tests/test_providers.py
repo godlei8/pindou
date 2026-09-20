@@ -1,4 +1,5 @@
 import base64
+import json
 import io
 from decimal import Decimal
 
@@ -209,3 +210,132 @@ def test_dashscope_poll_timeout_is_retryable(monkeypatch):
     with pytest.raises(pbase.ProviderError) as e:
         pbase.build_provider(cfg).redraw(_png(), "p", {})
     assert e.value.retryable is True
+
+
+# ---------- dashscope 的输入尺寸约束（实测发现） ----------
+
+@respx.mock
+def test_dashscope_upscales_images_below_min_size(monkeypatch):
+    """百炼要求输入图每边 512–4096 像素，小图必须先放大。
+
+    实测：400×400 的图提交后任务直接 FAILED，
+    code=InvalidParameter, "The height of the image should be between 512 and 4096 pixels."
+    """
+    monkeypatch.setenv("DS_KEY", "sk-ds")
+    cfg = pbase.ProviderConfig(name="ds", adapter="dashscope_native",
+                               base_url="https://ds.test/api/v1", api_key_env="DS_KEY",
+                               model="m", extra={"poll_interval": 0, "poll_timeout": 10})
+    submit = respx.post(
+        "https://ds.test/api/v1/services/aigc/image2image/image-synthesis").mock(
+        return_value=httpx.Response(200, json={"output": {"task_id": "T9"}}))
+    respx.get("https://ds.test/api/v1/tasks/T9").mock(
+        return_value=httpx.Response(200, json={"output": {"task_status": "SUCCEEDED",
+                                                          "results": [{"url": "https://cdn.test/r.png"}]}}))
+    respx.get("https://cdn.test/r.png").mock(
+        return_value=httpx.Response(200, content=_png(), headers={"content-type": "image/png"}))
+
+    pbase.build_provider(cfg).redraw(_png(size=(400, 400)), "p", {})
+
+    body = json.loads(submit.calls[0].request.content)
+    data_url = body["input"]["base_image_url"]
+    raw = base64.b64decode(data_url.split(",", 1)[1])
+    w, h = Image.open(io.BytesIO(raw)).size
+    assert min(w, h) >= 512 and max(w, h) <= 4096
+    assert w == h == 512                      # 正方形 400 → 512，不该过度放大
+
+
+@respx.mock
+def test_dashscope_downscales_images_above_max_size(monkeypatch):
+    monkeypatch.setenv("DS_KEY", "sk-ds")
+    cfg = pbase.ProviderConfig(name="ds", adapter="dashscope_native",
+                               base_url="https://ds.test/api/v1", api_key_env="DS_KEY",
+                               model="m", extra={"poll_interval": 0, "poll_timeout": 10})
+    submit = respx.post(
+        "https://ds.test/api/v1/services/aigc/image2image/image-synthesis").mock(
+        return_value=httpx.Response(200, json={"output": {"task_id": "TA"}}))
+    respx.get("https://ds.test/api/v1/tasks/TA").mock(
+        return_value=httpx.Response(200, json={"output": {"task_status": "SUCCEEDED",
+                                                          "results": [{"url": "https://cdn.test/r.png"}]}}))
+    respx.get("https://cdn.test/r.png").mock(
+        return_value=httpx.Response(200, content=_png(), headers={"content-type": "image/png"}))
+
+    pbase.build_provider(cfg).redraw(_png(size=(5000, 3000)), "p", {})
+
+    body = json.loads(submit.calls[0].request.content)
+    raw = base64.b64decode(body["input"]["base_image_url"].split(",", 1)[1])
+    w, h = Image.open(io.BytesIO(raw)).size
+    assert max(w, h) <= 4096 and min(w, h) >= 512
+
+
+@respx.mock
+def test_dashscope_leaves_compliant_images_untouched(monkeypatch):
+    monkeypatch.setenv("DS_KEY", "sk-ds")
+    cfg = pbase.ProviderConfig(name="ds", adapter="dashscope_native",
+                               base_url="https://ds.test/api/v1", api_key_env="DS_KEY",
+                               model="m", extra={"poll_interval": 0, "poll_timeout": 10})
+    submit = respx.post(
+        "https://ds.test/api/v1/services/aigc/image2image/image-synthesis").mock(
+        return_value=httpx.Response(200, json={"output": {"task_id": "TB"}}))
+    respx.get("https://ds.test/api/v1/tasks/TB").mock(
+        return_value=httpx.Response(200, json={"output": {"task_status": "SUCCEEDED",
+                                                          "results": [{"url": "https://cdn.test/r.png"}]}}))
+    respx.get("https://cdn.test/r.png").mock(
+        return_value=httpx.Response(200, content=_png(), headers={"content-type": "image/png"}))
+
+    original = _png(size=(768, 1024))
+    pbase.build_provider(cfg).redraw(original, "p", {})
+
+    body = json.loads(submit.calls[0].request.content)
+    raw = base64.b64decode(body["input"]["base_image_url"].split(",", 1)[1])
+    assert Image.open(io.BytesIO(raw)).size == (768, 1024)
+
+
+# ---------- provider 选择：只配了一家 key 时不能被别的条目挡住 ----------
+
+def _two_provider_yaml(tmp_path):
+    f = tmp_path / "p.yaml"
+    f.write_text("""
+providers:
+  - name: ark
+    adapter: openai_compatible
+    base_url: https://ark.test/api
+    api_key_env: ARK_ONLY_KEY
+    model: m1
+  - name: dashscope
+    adapter: dashscope_native
+    base_url: https://ds.test/api/v1
+    api_key_env: DS_ONLY_KEY
+    model: m2
+""", encoding="utf-8")
+    return f
+
+
+def test_get_provider_skips_entries_without_a_key(monkeypatch, tmp_path):
+    """第一条没配 key、第二条配了 → 必须选第二条，而不是报错。
+
+    踩过的坑：providers.yaml 从样例复制过来会同时列出 ark 和 dashscope，
+    而用户往往只有其中一家的 key。
+    """
+    cfgs = pbase.load_configs(_two_provider_yaml(tmp_path))
+    monkeypatch.setattr(pbase, "_configs", lambda: cfgs)
+    monkeypatch.delenv("ARK_ONLY_KEY", raising=False)
+    monkeypatch.setenv("DS_ONLY_KEY", "sk-ds")
+    assert pbase.get_provider().name == "dashscope"
+
+
+def test_get_provider_falls_back_to_fake_when_no_key_configured(monkeypatch, tmp_path):
+    cfgs = pbase.load_configs(_two_provider_yaml(tmp_path))
+    monkeypatch.setattr(pbase, "_configs", lambda: cfgs)
+    monkeypatch.delenv("ARK_ONLY_KEY", raising=False)
+    monkeypatch.delenv("DS_ONLY_KEY", raising=False)
+    assert isinstance(pbase.get_provider(), FakeProvider)
+
+
+def test_get_provider_by_name_still_raises_when_its_key_is_missing(monkeypatch, tmp_path):
+    """显式点名要 ark 却没配 key，就该明确报错，不能静默换一家。"""
+    cfgs = pbase.load_configs(_two_provider_yaml(tmp_path))
+    monkeypatch.setattr(pbase, "_configs", lambda: cfgs)
+    monkeypatch.delenv("ARK_ONLY_KEY", raising=False)
+    monkeypatch.setenv("DS_ONLY_KEY", "sk-ds")
+    with pytest.raises(pbase.ProviderError):
+        pbase.get_provider("ark")

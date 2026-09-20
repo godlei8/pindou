@@ -76,7 +76,8 @@ def _finish(grid, cell_rgb, params: Params, palette: Palette, kind: str) -> Patt
     try:
         report = attach_patches(
             analyze(grid, palette.lab, params.small_color_threshold,
-                    set(map(tuple, params.protected_cells))),
+                    set(map(tuple, params.protected_cells)),
+                    clear_index=palette.clear_index),
             grid, palette.clear_index)
     except Exception:       # 可拼性是附加环节，失败不能拖垮出图
         report = None

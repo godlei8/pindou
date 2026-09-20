@@ -77,7 +77,8 @@ def _analyze_report(grid: np.ndarray, palette: CorePalette, params: Params) -> d
     try:
         report = attach_patches(
             analyze(grid, palette.lab, params.small_color_threshold,
-                    set(map(tuple, params.protected_cells))),
+                    set(map(tuple, params.protected_cells)),
+                    clear_index=palette.clear_index),
             grid, palette.clear_index)
         return report.to_dict()
     except Exception:
