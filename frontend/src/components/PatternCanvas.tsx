@@ -47,7 +47,13 @@ export function PatternCanvas(props: Props) {
         const cell = toCell(e);
         if (!cell) return;
         dragging.current = true;
-        e.currentTarget.setPointerCapture?.(e.pointerId);
+        // setPointerCapture 会在 pointer 不是活动指针时抛 NotFoundError（已在浏览器实测）。
+        // 捕获只是为了拖拽出界时还能收到事件，是锦上添花——绝不能让它把这一笔吞掉。
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* 捕获失败就算了，画还是要画 */
+        }
         props.onCellDown(cell[0], cell[1]);
       }}
       onPointerMove={(e) => {

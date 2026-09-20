@@ -98,6 +98,23 @@ describe("PatternCanvas", () => {
     expect(c.height).toBe(21);
   });
 
+  test("setPointerCapture 抛错时这一笔不能丢", async () => {
+    // 浏览器实测：pointer 不是活动指针时 setPointerCapture 抛 NotFoundError，
+    // 原来用 ?. 只防了"方法不存在"，防不住它抛错，整个 pointerdown 处理会被中断。
+    const onCellDown = vi.fn();
+    const { container } = render(
+      <PatternCanvas grid={[[0, 1], [1, 0]]} colors={COLORS} cellPx={10}
+                     onCellDown={onCellDown} onCellEnter={() => {}} onPointerUp={() => {}} />,
+    );
+    const c = container.querySelector("canvas")!;
+    c.getBoundingClientRect = () => ({ left: 0, top: 0, width: 21, height: 21,
+                                       right: 21, bottom: 21, x: 0, y: 0, toJSON: () => ({}) });
+    c.setPointerCapture = () => { throw new DOMException("no active pointer", "NotFoundError"); };
+    await userEvent.pointer({ target: c, coords: { clientX: 5, clientY: 5 },
+                              keys: "[MouseLeft>]" });
+    expect(onCellDown).toHaveBeenCalledWith(0, 0);
+  });
+
   test("按下把像素坐标翻成格子坐标", async () => {
     const onCellDown = vi.fn();
     const { container } = render(
