@@ -12,7 +12,9 @@ EMPTY = -1  # 网格空格
 class Params:
     grid_long_side: int = 58          # 长边格数
     max_colors: int = 24
-    smoothness: float = 1.0           # graph cut λ；0 = 纯最近色
+    smoothness: float = 2.0           # graph cut λ；0 = 纯最近色。默认值由 scripts/benchmark.py
+                                      # 在 10 张黄金样本上比较 λ∈{0,1,2,3} 选出：2.0 在每张图上
+                                      # 的 confetti 都不劣于 1.0 且不损失色数；3.0 开始吃掉色号。
     dither: bool = False
     palette_id: str = "mard"
     background_seed: tuple[int, int] | None = None   # 吸管点 (x, y)，原图坐标
