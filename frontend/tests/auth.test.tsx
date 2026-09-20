@@ -94,3 +94,27 @@ describe("LoginPage", () => {
     });
   });
 });
+
+describe("路由守卫", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+
+  test("已登录时访问 /login 会被送回项目页，不显示登录表单", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).includes("/auth/me")) return json(USER);
+      if (String(url).includes("/projects")) return json([]);
+      return json({ detail: "未 mock" }, 500);
+    }));
+    const { App } = await import("../src/App");
+    render(<MemoryRouter initialEntries={["/login"]}><App /></MemoryRouter>);
+    await waitFor(() => expect(screen.getByText("我的项目")).toBeTruthy());
+    expect(screen.queryByLabelText("邀请码")).toBeNull();
+    expect(screen.queryByRole("button", { name: /没有账号/ })).toBeNull();
+  });
+
+  test("未登录时访问受保护页会被送到登录页", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ detail: "未登录" }, 401)));
+    const { App } = await import("../src/App");
+    render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
+    await waitFor(() => expect(screen.getByLabelText("用户名")).toBeTruthy());
+  });
+});

@@ -72,3 +72,175 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 
 .score { font-size: 28px; font-weight: 700; margin: 0; }
 .score small { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 8px; }
+
+/* ── 登录页：像素可爱风 ─────────────────────────────────────────────
+   设计取自拼豆自身的材料：底板是点阵，未熨烫的豆子是「环」不是方块，
+   登录成功时它们熨在一起。配色全部是真实 MARD 色号。            */
+
+.auth {
+  --bead-red: #FC3D45;      /* F2  */
+  --bead-green: #00BD35;    /* B5  */
+  --bead-white: #FFFFFF;    /* H2  */
+  --board: #F9F0CD;         /* A1  底板米黄 */
+  --peg: #E2DFD7;           /* T1  透明豆的颜色，正好当凸点 */
+  --ink: #3B2F23;           /* H16 深褐，比纯黑柔和，像烫过的塑料 */
+  --focus: #FFDB4D;         /* R10 */
+
+  --pitch: 22px;            /* 底板孔距 */
+
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background-color: var(--board);
+  /* 真实底板：规则排布的凸点 */
+  background-image: radial-gradient(circle at center,
+                    var(--peg) 0 3px, transparent 3px);
+  background-size: var(--pitch) var(--pitch);
+  background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2);
+}
+
+.auth-card {
+  width: min(360px, 100%);
+  padding: 28px 26px 20px;
+  background: #FFFDF0;                       /* H18 */
+  border: 3px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--ink);          /* 硬投影，不糊 */
+  text-align: center;
+}
+
+/* ── 豆子 sprite ── */
+.sprite {
+  display: inline-grid;
+  gap: 1px;
+  margin-bottom: 18px;
+}
+.sprite-row { display: flex; gap: 1px; }
+
+.bead {
+  width: 16px;
+  height: 16px;
+  /* 未熨烫的豆子从上往下看是一个环——中间的孔露出底板 */
+  background: radial-gradient(circle at center,
+              transparent 0 26%, var(--bead) 26% 100%);
+  border-radius: 50%;
+  transition: border-radius 420ms cubic-bezier(.2, .8, .3, 1),
+              background 420ms ease,
+              transform 420ms cubic-bezier(.2, .8, .3, 1);
+}
+.bead.is-empty { background: none; }
+
+/* 熨烫：孔闭合、边角方正、彼此熔连 */
+.sprite.is-fused .bead:not(.is-empty) {
+  background: radial-gradient(circle at center,
+              var(--bead) 0 100%, var(--bead) 100%);
+  border-radius: 3px;
+  transform: scale(1.12);
+}
+
+/* ── 文字 ── */
+.auth-title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.22em;      /* 拧紧字距，呼应格子的等距 */
+  text-indent: 0.22em;         /* 补掉尾字多出的那一格 */
+  color: var(--ink);
+}
+.auth-sub {
+  margin: 0 0 22px;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
+}
+
+/* ── 表单 ── */
+.auth-form { display: grid; gap: 6px; max-width: none; text-align: left; }
+.auth-form label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+}
+.auth-form input {
+  padding: 9px 11px;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  margin-bottom: 8px;
+}
+.auth-form input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.auth-hint {
+  margin: -4px 0 8px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+
+.auth-error {
+  margin: 2px 0 10px;
+  padding: 8px 10px;
+  border: 2px solid var(--bead-red);
+  background: color-mix(in srgb, var(--bead-red) 10%, #fff);
+  color: var(--bead-red);
+  font-size: 13px;
+}
+
+.auth-submit {
+  margin-top: 4px;
+  padding: 11px;
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  background: var(--bead-red);
+  box-shadow: 4px 4px 0 var(--ink);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  cursor: pointer;
+  transition: transform 90ms ease, box-shadow 90ms ease;
+}
+.auth-submit:hover:not(:disabled) { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+.auth-submit:active:not(:disabled) { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+.auth-submit:focus-visible { outline: none; box-shadow: 4px 4px 0 var(--ink), 0 0 0 3px var(--focus); }
+.auth-submit:disabled { opacity: .55; cursor: not-allowed; }
+
+.auth-toggle {
+  margin-top: 16px;
+  border: none;
+  background: none;
+  padding: 4px;
+  color: var(--ink);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.auth-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.auth-credit {
+  margin: 14px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+.auth-credit b {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;  /* 像色号袋上的印字 */
+  font-weight: 600;
+}
+
+@media (max-width: 380px) {
+  .auth { --pitch: 18px; }
+  .bead { width: 13px; height: 13px; }
+  .auth-card { padding: 22px 18px 16px; box-shadow: 5px 5px 0 var(--ink); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bead, .auth-submit { transition: none; }
+  .sprite.is-fused .bead:not(.is-empty) { transform: none; }
+}
