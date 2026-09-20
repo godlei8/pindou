@@ -38,4 +38,4 @@ def list_style_presets(user: User = Depends(current_user),
                        db: Session = Depends(get_db)) -> list[StylePreset]:
     return list(db.scalars(
         select(StylePreset).where(StylePreset.is_active.is_(True))
-        .order_by(StylePreset.name)).all())
+        .order_by(StylePreset.sort_order, StylePreset.name)).all())

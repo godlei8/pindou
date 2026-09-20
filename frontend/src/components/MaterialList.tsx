@@ -10,10 +10,10 @@ export function MaterialList({ materials }: { materials: Material[] }) {
         <ul className="materials">
           {materials.map((m) => (
             <li key={m.index}>
-              <i style={{ background: m.hex }} />
-              <strong>{m.code}</strong>
-              <span>{m.count} 颗</span>
-              <span>{m.packs} 包</span>
+              <i style={{ background: m.hex }} aria-hidden="true" />
+              <span className="code">{m.code}</span>
+              <span className="count">{m.count} 颗</span>
+              <span className="packs">{m.packs} 包</span>
             </li>
           ))}
         </ul>

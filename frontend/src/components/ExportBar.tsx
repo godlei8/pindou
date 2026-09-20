@@ -16,10 +16,12 @@ export function ExportBar({ patternId, onFeedback }: Props) {
     <section className="panel">
       <h2>导出</h2>
       <div className="toolbar">
-        <a href={api.exportUrl(patternId, { format: "png", cell_px: 28 })} download>
+        <a className="btn" href={api.exportUrl(patternId, { format: "png", cell_px: 28 })}
+           download>
           下载 PNG
         </a>
-        <a href={api.exportUrl(patternId, { format: "pdf", bead_mm: 5 })} download>
+        <a className="btn" href={api.exportUrl(patternId, { format: "pdf", bead_mm: 5 })}
+           download>
           下载 PDF（1:1 可打印）
         </a>
       </div>

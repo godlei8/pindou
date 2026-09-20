@@ -44,13 +44,17 @@ export function ProjectsPage() {
       <h1>我的项目</h1>
 
       <form onSubmit={upload} className="upload">
-        <label htmlFor="file">图片</label>
-        <input id="file" type="file" accept="image/png,image/jpeg,image/webp"
-               onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        <label htmlFor="name">项目名</label>
-        <input id="name" value={name} onChange={(e) => setName(e.target.value)}
-               placeholder="不填就用文件名" />
-        <button type="submit" disabled={!file || busy}>上传</button>
+        <div>
+          <label htmlFor="file">图片</label>
+          <input id="file" type="file" accept="image/png,image/jpeg,image/webp"
+                 onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        </div>
+        <div>
+          <label htmlFor="name">项目名</label>
+          <input id="name" value={name} onChange={(e) => setName(e.target.value)}
+                 placeholder="不填就用文件名" />
+        </div>
+        <button type="submit" className="primary" disabled={!file || busy}>上传</button>
       </form>
 
       {error && <p role="alert" className="error">{error}</p>}

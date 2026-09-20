@@ -69,6 +69,9 @@ export interface Pattern {
   project_id: string;
   parent_id: string | null;
   origin: string;
+  /** 这张图纸是基于哪张 AI 重绘图算的。null = 基于原图。
+   *  改参数重算时必须带上它，否则会悄悄退回原图。 */
+  ai_render_id: string | null;
   params: PatternParams;
   grid: Grid;
   color_stats: Record<string, number>;

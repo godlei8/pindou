@@ -21,7 +21,7 @@ export function ParamPanel({ params, sizes, disabled, onChange }: Props) {
              onChange={(e) => set("grid_long_side", Number(e.target.value))} />
 
       {sizes.length > 0 && (
-        <div className="toolbar">
+        <div className="sizes">
           {sizes.map((s) => (
             <button key={s.long_side} type="button" disabled={disabled}
                     onClick={() => set("grid_long_side", s.long_side)}>

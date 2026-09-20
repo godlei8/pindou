@@ -69,6 +69,24 @@ def get_source(project_id: uuid.UUID, user: User = Depends(current_user),
     return Response(get_storage().load(proj.source_image_path), media_type="image/png")
 
 
+@router.get("/projects/{project_id}/ai-renders/{render_id}/image")
+def get_ai_render(project_id: uuid.UUID, render_id: uuid.UUID,
+                  user: User = Depends(current_user),
+                  db: Session = Depends(get_db)) -> Response:
+    """AI 重绘的成品图。前端拿它和原图做对比切换。
+
+    归属检查走 project——AiRender 本身没有 user_id，只能经由 project 认人。
+    """
+    _owned_project(db, user, project_id)
+    render = db.get(AiRender, render_id)
+    if render is None or render.project_id != project_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "AI 图不存在")
+    if render.output_path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            f"AI 图尚未生成（状态 {render.status}）")
+    return Response(get_storage().load(render.output_path), media_type="image/png")
+
+
 @router.get("/projects/{project_id}/suggest-sizes", response_model=list[SizeSuggestion])
 def suggest_sizes(project_id: uuid.UUID, base: int = 58, user: User = Depends(current_user),
                   db: Session = Depends(get_db)) -> list[dict]:

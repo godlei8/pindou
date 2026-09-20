@@ -27,7 +27,9 @@ function TopBar() {
   return (
     <header className="topbar">
       <a href="/">拼豆图纸生成</a>
-      <span>{user.username} · AI 额度 {user.ai_quota - user.ai_used}/{user.ai_quota}</span>
+      <span className="quota">
+        {user.username} · AI 额度 {user.ai_quota - user.ai_used}/{user.ai_quota}
+      </span>
       <button type="button" onClick={() => void logout()}>退出</button>
     </header>
   );

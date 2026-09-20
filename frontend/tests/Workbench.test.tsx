@@ -3,10 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import { AuthProvider } from "../src/hooks/useAuth";
 import { WorkbenchPage } from "../src/pages/WorkbenchPage";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+const USER = { id: "u1", username: "amy", ai_quota: 5, ai_used: 0, is_admin: false };
 
 const COLORS = [
   { index: 0, code: "H2", name: "H2", hex: "#FFFFFF", role: null, confidence: "agree" },
@@ -39,6 +42,7 @@ const PROJECT = {
 function routeFetch(projectResponse?: () => Response) {
   return vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
+    if (url.includes("/auth/me")) return json(USER);
     if (url.includes("/palettes/mard/colors")) return json(COLORS);
     if (url.includes("/suggest-sizes")) return json([{ long_side: 44, detail_loss: 0.01 }]);
     if (url.includes("/style-presets")) return json([]);
@@ -53,9 +57,12 @@ function routeFetch(projectResponse?: () => Response) {
 }
 
 function mount() {
+  // 工作台的每个请求都要会话，现实里它只可能跑在 AuthProvider 里面
   return render(
     <MemoryRouter initialEntries={["/p/p1"]}>
-      <Routes><Route path="/p/:projectId" element={<WorkbenchPage />} /></Routes>
+      <AuthProvider>
+        <Routes><Route path="/p/:projectId" element={<WorkbenchPage />} /></Routes>
+      </AuthProvider>
     </MemoryRouter>,
   );
 }

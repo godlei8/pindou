@@ -87,6 +87,8 @@ export const api = {
     return request<Project>("/projects", { method: "POST", body: fd });
   },
   sourceUrl: (id: string) => `${BASE}/projects/${id}/source`,
+  aiRenderUrl: (projectId: string, renderId: string) =>
+    `${BASE}/projects/${projectId}/ai-renders/${renderId}/image`,
   suggestSizes: (id: string, base: number) =>
     request<SizeSuggestion[]>(`/projects/${id}/suggest-sizes?base=${base}`),
   generate: (id: string, body: {

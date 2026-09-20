@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { api } from "../api/client";
 import type { PatternParams } from "../api/types";
 import { ExportBar } from "../components/ExportBar";
 import { IssueList } from "../components/IssueList";
@@ -9,6 +8,7 @@ import { MaterialList } from "../components/MaterialList";
 import { PalettePicker } from "../components/PalettePicker";
 import { ParamPanel } from "../components/ParamPanel";
 import { PatternCanvas } from "../components/PatternCanvas";
+import { SourcePanel } from "../components/SourcePanel";
 import { ToolBar } from "../components/ToolBar";
 import { useEditor } from "../hooks/useEditor";
 import { usePattern } from "../hooks/usePattern";
@@ -55,14 +55,28 @@ export function WorkbenchPage() {
 
   return (
     <main className="workbench">
-      <section className="panel">
-        <h2>原图</h2>
-        {p.project && <img src={api.sourceUrl(projectId)} alt={p.project.name}
-                           style={{ maxWidth: "100%" }} />}
-        {p.pattern && (
-          <p className="empty">当前版本 {p.pattern.id.slice(0, 8)}（{p.pattern.origin}）</p>
+      <div>
+        {p.project && (
+          <SourcePanel
+            projectId={projectId}
+            projectName={p.project.name}
+            aiRenderId={p.aiRenderId}
+            aiPhase={p.aiPhase}
+            aiError={p.aiError}
+            busy={p.busy}
+            onGenerate={(presetId) => void p.generateWithAi(presetId)}
+            onDismissError={p.dismissAiError}
+          />
         )}
-      </section>
+        {p.pattern && (
+          <p className="empty">
+            当前版本 {p.pattern.id.slice(0, 8)}
+            {/* origin 说的是"怎么产生的"（generated/edited/patched），
+                "基于哪张图"只有 ai_render_id 说了算 */}
+            （{p.pattern.ai_render_id ? "基于 AI 图" : "基于原图"}）
+          </p>
+        )}
+      </div>
 
       <div>
         {p.error && <p role="alert" className="error">{p.error}</p>}

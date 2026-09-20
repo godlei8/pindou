@@ -1,9 +1,10 @@
 import io
+import uuid
 from pathlib import Path
 
 from PIL import Image
 
-from app.models import StylePreset
+from app.models import AiRender, Project, StylePreset
 
 FIXTURES = Path(__file__).parent / "fixtures" / "images"
 
@@ -104,3 +105,53 @@ def test_job_of_another_user_is_404(auth_client, client, invite_other):
     client.post("/api/auth/register",
                 json={"username": "nosy", "password": "pw12345678", "invite_code": "OTHER"})
     assert client.get(f"/api/jobs/{job_id}").status_code == 404
+
+
+def _make_render(db, project_id, *, output_path, status="done"):
+    """直接塞一条 AiRender。走真实 provider 会花钱，这里只测取图端点本身。"""
+    render = AiRender(project_id=uuid.UUID(project_id), provider="fake", model="fake-v1",
+                      style_preset_id=None, prompt="p", params={},
+                      input_hash="h" * 64, output_path=output_path, status=status)
+    db.add(render)
+    db.commit()
+    return str(render.id)
+
+
+def test_ai_render_image_is_served_back(auth_client, db):
+    pid = _upload(auth_client).json()["id"]
+    # 复用项目自己的原图当"AI 成品"——端点只负责按路径取字节
+    proj = db.get(Project, uuid.UUID(pid))
+    rid = _make_render(db, pid, output_path=proj.source_image_path)
+
+    r = auth_client.get(f"/api/projects/{pid}/ai-renders/{rid}/image")
+    assert r.status_code == 200, r.text
+    assert Image.open(io.BytesIO(r.content)).size[0] > 0
+
+
+def test_ai_render_still_pending_says_so(auth_client, db):
+    pid = _upload(auth_client).json()["id"]
+    rid = _make_render(db, pid, output_path=None, status="running")
+    r = auth_client.get(f"/api/projects/{pid}/ai-renders/{rid}/image")
+    assert r.status_code == 404 and "running" in r.json()["detail"]
+
+
+def test_ai_render_of_another_project_is_not_reachable(auth_client, db):
+    """AiRender 没有 user_id，归属只能经 project 认。跨项目取图必须挡住。"""
+    mine = _upload(auth_client, "我的").json()["id"]
+    other = _upload(auth_client, "另一个").json()["id"]
+    proj = db.get(Project, uuid.UUID(other))
+    rid = _make_render(db, other, output_path=proj.source_image_path)
+
+    assert auth_client.get(f"/api/projects/{mine}/ai-renders/{rid}/image").status_code == 404
+
+
+def test_ai_render_requires_owning_the_project(auth_client, client, invite_other, db):
+    pid = _upload(auth_client).json()["id"]
+    proj = db.get(Project, uuid.UUID(pid))
+    rid = _make_render(db, pid, output_path=proj.source_image_path)
+
+    client.cookies.clear()
+    client.post("/api/auth/register",
+                json={"username": "intruder2", "password": "pw12345678",
+                      "invite_code": "OTHER"})
+    assert client.get(f"/api/projects/{pid}/ai-renders/{rid}/image").status_code == 404

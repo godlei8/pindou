@@ -29,7 +29,8 @@ def _owned_pattern(db: Session, user: User, pattern_id: uuid.UUID) -> Pattern:
 def pattern_out(pat: Pattern, palette: CorePalette) -> dict:
     return {
         "id": pat.id, "project_id": pat.project_id, "parent_id": pat.parent_id,
-        "origin": pat.origin, "params": pat.params, "grid": pat.grid,
+        "origin": pat.origin, "ai_render_id": pat.ai_render_id,
+        "params": pat.params, "grid": pat.grid,
         "color_stats": pat.color_stats, "buildability": pat.buildability,
         "materials": psvc.materials_of(pat, palette),
         "palette_id": (pat.params or {}).get("palette_id", "mard"),
