@@ -49,3 +49,48 @@ def db(test_engine):
 def session_factory(test_engine):
     """需要真实提交的场景（如 SKIP LOCKED 并发测试）用它，自己负责清理。"""
     return sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False, future=True)
+
+
+@pytest.fixture
+def client(db):
+    """TestClient，路由内的 get_db 被换成测试事务里的同一个 session。"""
+    from fastapi.testclient import TestClient
+
+    from app.db import get_db
+    from app.main import create_app
+
+    app = create_app(run_startup=False)
+    app.dependency_overrides[get_db] = lambda: db
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture
+def auth_client(client, db):
+    """已登录的客户端，附带 user 属性。"""
+    from sqlalchemy import select
+
+    from app.models import InviteCode, User
+    from app.services import auth as auth_svc
+
+    original_rounds = auth_svc._ROUNDS
+    auth_svc._ROUNDS = 4
+    try:
+        db.add(InviteCode(code="FIXTURE", max_uses=99))
+        db.flush()
+        client.post("/api/auth/register",
+                    json={"username": "fixture-user", "password": "pw12345678",
+                          "invite_code": "FIXTURE"})
+        client.user = db.scalar(select(User).where(User.username == "fixture-user"))
+        client.user.ai_quota = 10
+        db.flush()
+        yield client
+    finally:
+        auth_svc._ROUNDS = original_rounds
+
+
+@pytest.fixture
+def invite_other(db):
+    from app.models import InviteCode
+    db.add(InviteCode(code="OTHER", max_uses=9))
+    db.flush()
