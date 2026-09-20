@@ -82,8 +82,23 @@ def wide_image():        # 投诉"非方图被拉伸"
     im.save(OUT / "wide.png")
 
 
+def thin_diagonal():
+    """透明底 + 细斜线 + 一个离群小块。
+
+    其余样本都是不透明白底，整张图每个格子都填满，形状上毫无破绽——
+    可拼性检查（孤立豆/对角虚连/不连通/空洞）考察的是填充区域的**形状**，
+    实心矩形永远触发不了。真实拼豆图纸是透明底的，这张才是那个形态。
+    """
+    im = Image.new("RGBA", (240, 240), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.line([20, 220, 220, 20], fill=(20, 20, 20, 255), width=4)
+    d.ellipse([30, 30, 70, 70], fill=(220, 40, 40, 255))      # 离主体较远 → 不连通
+    im.save(OUT / "thin_diagonal.png")
+
+
 if __name__ == "__main__":
     for fn in (cartoon, logo, photo_like, pixel_art, diagonal_trap,
-               solid_block, gray_object, yellow_object, transparent_png, wide_image):
+               solid_block, gray_object, yellow_object, transparent_png, wide_image,
+               thin_diagonal):
         fn()
     print("fixtures written to", OUT)
