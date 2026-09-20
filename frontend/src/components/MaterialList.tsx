@@ -1,0 +1,23 @@
+import type { Material } from "../api/types";
+
+export function MaterialList({ materials }: { materials: Material[] }) {
+  return (
+    <section className="panel">
+      <h2>材料清单</h2>
+      {materials.length === 0 ? (
+        <p className="empty">暂无</p>
+      ) : (
+        <ul className="materials">
+          {materials.map((m) => (
+            <li key={m.index}>
+              <i style={{ background: m.hex }} />
+              <strong>{m.code}</strong>
+              <span>{m.count} 颗</span>
+              <span>{m.packs} 包</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}

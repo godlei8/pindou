@@ -1,14 +1,15 @@
 import type { Grid } from "../api/types";
 import { gridSize } from "./grid";
 
-/** 只声明本模块真正用到的成员——测试就能传一个记录调用的假对象。 */
+/** 只声明本模块真正用到的成员——测试就能传一个记录调用的假对象。
+ *  属性类型必须与 DOM 的 CanvasRenderingContext2D 一致，否则真 ctx 不可赋值给它。 */
 export interface Ctx {
-  fillStyle: string;
-  strokeStyle: string;
+  fillStyle: string | CanvasGradient | CanvasPattern;
+  strokeStyle: string | CanvasGradient | CanvasPattern;
   lineWidth: number;
   font: string;
-  textAlign: string;
-  textBaseline: string;
+  textAlign: CanvasTextAlign;
+  textBaseline: CanvasTextBaseline;
   fillRect(x: number, y: number, w: number, h: number): void;
   strokeRect(x: number, y: number, w: number, h: number): void;
   beginPath(): void;

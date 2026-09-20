@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import type { Grid } from "../src/api/types";
+import type { Ctx } from "../src/lib/draw";
 import { DEFAULT_DRAW, canvasSize, cellAt, drawPattern, fitCellPx } from "../src/lib/draw";
+
+type FakeCtx = Ctx & { calls: { fn: string; args: unknown[] }[] };
 
 const G: Grid = [
   [0, 1, null],
@@ -11,12 +14,13 @@ const COLORS = new Map([[0, "#FF0000"], [1, "#00FF00"]]);
 const O = { ...DEFAULT_DRAW, cellPx: 10 };
 
 /** 记录调用的假 2d 上下文——jsdom 没有真的。 */
-function fakeCtx() {
+function fakeCtx(): FakeCtx {
   const calls: { fn: string; args: unknown[] }[] = [];
   const rec = (fn: string) => (...args: unknown[]) => { calls.push({ fn, args }); };
   return {
     calls,
-    fillStyle: "", strokeStyle: "", lineWidth: 0, font: "", textAlign: "", textBaseline: "",
+    fillStyle: "", strokeStyle: "", lineWidth: 0, font: "",
+    textAlign: "start", textBaseline: "alphabetic",
     fillRect: rec("fillRect"),
     strokeRect: rec("strokeRect"),
     beginPath: rec("beginPath"),
