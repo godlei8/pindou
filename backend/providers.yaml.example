@@ -1,0 +1,22 @@
+# 复制为 providers.yaml 并填入真实配置；providers.yaml 已被 .gitignore 忽略。
+# 没有这个文件时系统回退到 FakeProvider（本地 posterize，不联网、不花钱）。
+providers:
+  - name: ark
+    adapter: openai_compatible
+    base_url: https://ark.cn-beijing.volces.com/api/v3
+    api_key_env: ARK_API_KEY
+    model: doubao-seedream-4-0
+    extra:
+      size: 1024x1024
+      timeout: 120
+
+  - name: dashscope
+    adapter: dashscope_native
+    base_url: https://dashscope.aliyuncs.com/api/v1
+    api_key_env: DASHSCOPE_API_KEY
+    model: wanx2.1-imageedit
+    extra:
+      function: stylization_all
+      strength: 0.5
+      poll_interval: 3
+      poll_timeout: 300
