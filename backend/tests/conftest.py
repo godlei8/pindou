@@ -39,7 +39,9 @@ def db(test_engine):
         yield session
     finally:
         session.close()
-        trans.rollback()
+        # 触发过 IntegrityError 的测试里，事务已被解绑；再 rollback 会发 SAWarning。
+        if trans.is_active:
+            trans.rollback()
         conn.close()
 
 
