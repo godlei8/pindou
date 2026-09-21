@@ -20,7 +20,7 @@ const PARAMS = {
   palette_id: "mard", small_color_threshold: 10, lock_outlines: true,
 };
 
-function pattern(id: string, aiRenderId: string | null) {
+function pattern(id: string, aiRenderId: string | null, score = 90) {
   return {
     id, project_id: "p1", parent_id: null,
     // 后端对两种来源都写 "generated"——origin 说的是"怎么产生的"，不是"基于哪张图"
@@ -29,7 +29,7 @@ function pattern(id: string, aiRenderId: string | null) {
     params: PARAMS,
     grid: [[0, 0], [0, 0]],
     color_stats: { "0": 4 },
-    buildability: { score: 90, confetti_pct: 0.5, n_components: 1, metrics: {}, issues: [] },
+    buildability: { score, confetti_pct: 0.5, n_components: 1, metrics: {}, issues: [] },
     materials: [{ index: 0, code: "H2", hex: "#FFFFFF", count: 4, packs: 1 }],
     palette_id: "mard", created_at: "2026-09-20T00:00:00Z",
   };
@@ -42,7 +42,7 @@ const PROJECT = {
 };
 
 /** jobStates 按顺序供给 GET /jobs/7 的返回，最后一项会一直重复。 */
-function makeFetch(jobStates: Array<Record<string, unknown>>) {
+function makeFetch(jobStates: Array<Record<string, unknown>>, originalScore = 90) {
   let poll = 0;
   return vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
@@ -60,7 +60,7 @@ function makeFetch(jobStates: Array<Record<string, unknown>>) {
                     created_at: "2026-09-20T00:00:00Z", ...state });
     }
     if (url.includes("/api/patterns/pat-ai")) return json(pattern("pat-ai", "r1"));
-    if (url.includes("/api/patterns/pat1")) return json(pattern("pat1", null));
+    if (url.includes("/api/patterns/pat1")) return json(pattern("pat1", null, originalScore));
     if (url.includes("/projects/p1/patterns")) return json(pattern("pat2", "r1"));
     if (url.endsWith("/api/projects/p1")) return json(PROJECT);
     return json({ detail: `未 mock 的请求：${url}` }, 500);
@@ -183,5 +183,45 @@ describe("版本来源标注", () => {
     vi.stubGlobal("fetch", makeFetch([{ status: "pending", result: null }]));
     mount();
     await waitFor(() => expect(screen.getByText(/基于原图/)).toBeTruthy());
+  });
+});
+
+
+describe("「这张图可能不需要 AI」提示", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+
+  test("原图出的图纸已经够好时给出提示", async () => {
+    vi.stubGlobal("fetch", makeFetch([{ status: "pending", result: null }], 89.2));
+    mount();
+    await waitFor(() => expect(screen.getByText(/这张图可能不需要 AI/)).toBeTruthy());
+    // 提示只是提示，不拦着用户去试
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "用 AI 重绘" })).toHaveProperty("disabled", false));
+  });
+
+  test("原图出的图纸一般时不提示", async () => {
+    vi.stubGlobal("fetch", makeFetch([{ status: "pending", result: null }], 81.6));
+    mount();
+    await waitFor(() => screen.getByRole("button", { name: "用 AI 重绘" }));
+    expect(screen.queryByText(/这张图可能不需要 AI/)).toBeNull();
+  });
+
+  test("已经在看 AI 图时不再提示——额度都花了，马后炮没用", async () => {
+    vi.stubGlobal("fetch",
+      makeFetch([{ status: "done", result: { pattern_id: "pat-ai", ai_render_id: "r1" } }], 89.2));
+    mount();
+    await waitFor(() => expect(screen.getByText(/这张图可能不需要 AI/)).toBeTruthy());
+    await userEvent.click(screen.getByRole("button", { name: "用 AI 重绘" }));
+    await waitFor(() => screen.getByRole("tab", { name: "AI 图" }));
+    expect(screen.queryByText(/这张图可能不需要 AI/)).toBeNull();
+  });
+
+  test("没额度时不提示——已经有一条更该看的消息了", async () => {
+    const base = makeFetch([{ status: "pending", result: null }], 89.2);
+    vi.stubGlobal("fetch", vi.fn(async (i: RequestInfo | URL, init?: RequestInit) =>
+      String(i).includes("/auth/me") ? json({ ...USER, ai_used: 5 }) : base(i, init)));
+    mount();
+    await waitFor(() => screen.getByText(/不用 AI 也能直接出图/));
+    expect(screen.queryByText(/这张图可能不需要 AI/)).toBeNull();
   });
 });

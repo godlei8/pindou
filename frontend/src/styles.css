@@ -635,3 +635,14 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
   input[type="checkbox"]::before { width: 12px; height: 12px; }
   .topbar a { min-height: 44px; display: inline-flex; align-items: center; }
 }
+
+/* 提示：这张图可能不需要 AI。不是错误，别用 error 的红框；
+   用 info 蓝的左边条，和"花钱前先看一眼"的语气相称。 */
+.ai-note {
+  margin: var(--sp-3) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-sunk);
+  border: var(--bd) solid var(--peg);
+  border-left: var(--sp-1) solid var(--info);
+  color: var(--ink);
+}

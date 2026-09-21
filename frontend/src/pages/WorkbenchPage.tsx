@@ -61,6 +61,13 @@ export function WorkbenchPage() {
             projectId={projectId}
             projectName={p.project.name}
             aiRenderId={p.aiRenderId}
+            originalQuality={
+              // 只在还看着原图出的图纸时才有意义：已经花过额度就别马后炮了
+              p.pattern && !p.pattern.ai_render_id && p.pattern.buildability
+                ? { score: p.pattern.buildability.score,
+                    confetti_pct: p.pattern.buildability.confetti_pct }
+                : null
+            }
             aiPhase={p.aiPhase}
             aiError={p.aiError}
             busy={p.busy}

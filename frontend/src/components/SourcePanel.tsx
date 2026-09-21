@@ -5,10 +5,23 @@ import type { StylePreset } from "../api/types";
 import { useAuth } from "../hooks/useAuth";
 import type { AiPhase } from "../hooks/usePattern";
 
+/** 高于这个分数就提示"可能不需要 AI"。
+ *
+ *  阈值取 85，依据是目前仅有的两个真实对照：
+ *  - avatar.jpg 原图 89.2 分 → AI 重绘后 80.4 分（变差）
+ *  - 之前做提示词实测的那张 81.6 分 → AI 平涂后 87.4 分（变好）
+ *  两点之间，属于暂定值。等实拼反馈攒够了要重新标定——见 spec §11。
+ *
+ *  注意不要改成按"源图色数"判断：实测 avatar.jpg 的主色数是 35、平坦度 0.198，
+ *  跟照片没区别（JPEG 压缩把平坦度毁了），色数检测恰恰抓不到这个案例。 */
+const AI_UNLIKELY_HELPS_SCORE = 85;
+
 interface Props {
   projectId: string;
   projectName: string;
   aiRenderId: string | null;
+  /** 基于原图那张图纸的可拼性。已经在看 AI 图时传 null——那时提示已无意义。 */
+  originalQuality: { score: number; confetti_pct: number } | null;
   aiPhase: AiPhase;
   aiError: string;
   busy?: boolean;
@@ -24,7 +37,7 @@ const PHASE_TEXT: Record<AiPhase, string> = {
 };
 
 export function SourcePanel(props: Props) {
-  const { projectId, projectName, aiRenderId, aiPhase, aiError, busy } = props;
+  const { projectId, projectName, aiRenderId, originalQuality, aiPhase, aiError, busy } = props;
   const { user, refresh } = useAuth();
   const [presets, setPresets] = useState<StylePreset[]>([]);
   const [preset, setPreset] = useState("");
@@ -94,6 +107,15 @@ export function SourcePanel(props: Props) {
         </button>
         <small>剩余额度 {remaining}/{user?.ai_quota ?? 0}</small>
       </div>
+
+      {originalQuality && originalQuality.score >= AI_UNLIKELY_HELPS_SCORE
+        && remaining > 0 && !working && (
+        <p className="ai-note">
+          这张图可能不需要 AI。直接出的图纸已经 {originalQuality.score} 分、
+          散点 {originalQuality.confetti_pct}%，本来就挺平整；
+          图纸本身平整时重绘常常不会更好，实测有从 89 分掉到 80 分的情况。
+        </p>
+      )}
 
       {working && (
         <p className="ai-progress" role="status">
