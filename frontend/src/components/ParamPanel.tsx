@@ -8,11 +8,14 @@ interface Props {
   current: { rows: number; cols: number } | null;
   /** 检测到的人脸在当前格数下有多宽。 */
   faceHint?: FaceHint | null;
+  /** 当前图纸是开着"去背景"算的，却一格都没去掉——说明边缘不是纯色（比如照片）。 */
+  backgroundNotFound?: boolean;
   disabled?: boolean;
   onChange(next: PatternParams): void;
 }
 
-export function ParamPanel({ params, sizes, current, faceHint, disabled, onChange }: Props) {
+export function ParamPanel({ params, sizes, current, faceHint, backgroundNotFound, disabled,
+                             onChange }: Props) {
   const set = <K extends keyof PatternParams>(k: K, v: PatternParams[K]) =>
     onChange({ ...params, [k]: v });
 
@@ -81,6 +84,19 @@ export function ParamPanel({ params, sizes, current, faceHint, disabled, onChang
       <small>{params.smoothness === 0
         ? "0 = 纯最近色，等同市面工具的行为"
         : `λ=${params.smoothness}，越大散点越少、越平整`}</small>
+
+      {/* 拼豆一般拼一个"形状"不是一整块矩形：纯色底的图，背景不该填豆 */}
+      <label className="field-inline" htmlFor="remove-bg">
+        <input id="remove-bg" type="checkbox" checked={params.remove_background ?? false}
+               disabled={disabled}
+               onChange={(e) => set("remove_background", e.target.checked)} />
+        去掉背景<small>边缘一圈是纯色时，背景不填豆</small>
+      </label>
+      {backgroundNotFound && (
+        <p className="empty bg-note">
+          没找到能去掉的纯色背景：边缘颜色不统一（比如照片），背景会保留。要去掉可以用橡皮擦。
+        </p>
+      )}
 
       {/* 复选框和它的说明排一行，别竖着堆三层 */}
       <label className="field-inline" htmlFor="dither">

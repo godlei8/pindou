@@ -50,6 +50,8 @@ def params_from_dict(d: dict) -> Params:
             v = clean[key]
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not (lo <= v <= hi):
                 raise PatternError(f"参数 {key} 超出允许范围 [{lo}, {hi}]：{v!r}")
+    if "remove_background" in clean and not isinstance(clean["remove_background"], bool):
+        raise PatternError(f"参数 remove_background 必须是 true / false：{clean['remove_background']!r}")
     if clean.get("protected_cells"):
         clean["protected_cells"] = [tuple(c) for c in clean["protected_cells"]]
     if clean.get("background_seed"):

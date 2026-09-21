@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiError, DEFAULT_PARAMS, api } from "../api/client";
+import { ApiError, DEFAULT_PARAMS, api, paramsOf } from "../api/client";
 import type { EditCell, PaletteColor, Pattern, PatternBrief, PatternParams, Project,
   SizeSuggestion } from "../api/types";
 
@@ -115,7 +115,7 @@ export function usePattern(projectId: string) {
         if (proj.patterns.length > 0) {
           const latest = await api.getPattern(proj.patterns[0].id);
           if (!mounted) return;
-          const merged = { ...DEFAULT_PARAMS, ...latest.params };
+          const merged = paramsOf(latest);
           adopt(latest);
           settled.current = merged;
           setParamsState(merged);
@@ -158,7 +158,7 @@ export function usePattern(projectId: string) {
           if (!patternId) throw new Error("任务完成但没有返回图纸");
           const next = await api.getPattern(patternId);
           if (!alive.current) return;
-          const merged = { ...DEFAULT_PARAMS, ...next.params };
+          const merged = paramsOf(next);
           adopt(next);
           settled.current = merged;   // 这份参数已经有图纸了，别再重算一轮
           setParamsState(merged);
@@ -191,7 +191,7 @@ export function usePattern(projectId: string) {
     setError("");
     try {
       const pat = await api.getPattern(id);
-      const merged = { ...DEFAULT_PARAMS, ...pat.params };
+      const merged = paramsOf(pat);
       adopt(pat);
       settled.current = merged;   // 这份参数已经有图纸了，别触发一轮重算
       setParamsState(merged);

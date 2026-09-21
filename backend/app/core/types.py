@@ -19,6 +19,9 @@ class Params:
     palette_id: str = "mard"
     background_seed: tuple[int, int] | None = None   # 吸管点 (x, y)，原图坐标
     background_tolerance: float = 0.08               # OKLab 距离
+    #: 自动去掉纯色背景（边缘一圈几乎同色时，背景不填豆）。算法层默认关，
+    #: 保证旧图纸（参数里没有这个键）的含义不变；产品默认值在前端 DEFAULT_PARAMS 里开。
+    remove_background: bool = False
     small_color_threshold: int = 10                  # 少于此颗数的色号建议合并
     protected_cells: list[tuple[int, int]] = field(default_factory=list)  # (row, col)
     lock_outlines: bool = True

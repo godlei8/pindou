@@ -37,6 +37,9 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
     rgba = _load(image)
     if params.background_seed is not None:
         rgba = background.remove_background(rgba, params.background_seed, params.background_tolerance)
+    elif params.remove_background:
+        # 边缘一圈是纯色时，把和边缘连通的那片背景去掉、不填豆；照片边缘不统一，自动跳过
+        rgba, _ = background.remove_border_background(rgba, params.background_tolerance)
 
     cells, kind = _downsample(rgba, params)
     rows, cols = cells.mask.shape

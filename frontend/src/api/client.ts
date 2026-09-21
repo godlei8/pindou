@@ -12,7 +12,11 @@ export class ApiError extends Error {
   }
 }
 
-/** 后端 Params 的默认值，必须与 backend/app/core/types.py 保持一致。 */
+/** 新出图用的默认参数。除 remove_background 外与 backend/app/core/types.py 保持一致。
+ *
+ *  remove_background 是唯一有意不同的：算法层默认关，保证旧图纸（参数里没这个键）的含义不变；
+ *  产品默认开——拼豆一般拼一个"形状"不是一整块矩形，纯色底的图背景就不该填豆。
+ *  照片边缘颜色不统一，后端会自动跳过，不会误删。 */
 export const DEFAULT_PARAMS: PatternParams = {
   grid_long_side: 58,
   max_colors: 24,
@@ -21,7 +25,14 @@ export const DEFAULT_PARAMS: PatternParams = {
   palette_id: "mard",
   small_color_threshold: 10,
   lock_outlines: true,
+  remove_background: true,
 };
+
+/** 从一张已有图纸取回它的参数。参数里缺的键按"当时的含义"补：
+ *  去背景功能上线前的图纸没有 remove_background，它们当时就是没去背景的。 */
+export function paramsOf(p: { params: Partial<PatternParams> }): PatternParams {
+  return { ...DEFAULT_PARAMS, remove_background: false, ...p.params };
+}
 
 function readDetail(payload: unknown, fallback: string): string {
   if (typeof payload === "string" && payload.trim()) return payload.slice(0, 500);

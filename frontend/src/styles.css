@@ -1167,3 +1167,5 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
   border-width: var(--bd);
   box-shadow: 3px 3px 0 var(--ink);
 }
+
+.bg-note { margin: var(--sp-1) 0 0 calc(16px + var(--sp-2)); }

@@ -181,6 +181,8 @@ export function WorkbenchPage() {
       <div className="side">
         <ParamPanel params={p.params} sizes={p.sizes} disabled={p.busy} onChange={changeParams}
                     faceHint={p.pattern?.face_hint ?? null}
+                    backgroundNotFound={!!p.pattern?.params.remove_background
+                      && p.pattern.grid.every((row) => row.every((v) => v !== null))}
                     current={p.pattern && p.pattern.grid.length > 0
                       ? { rows: p.pattern.grid.length, cols: p.pattern.grid[0].length }
                       : null} />

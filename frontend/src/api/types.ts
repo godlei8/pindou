@@ -67,6 +67,8 @@ export interface PatternParams {
   protected_cells?: [number, number][];
   background_seed?: [number, number] | null;
   background_tolerance?: number;
+  /** 自动去掉纯色背景：边缘一圈几乎同色时，背景不填豆。 */
+  remove_background?: boolean;
 }
 
 export interface Pattern {

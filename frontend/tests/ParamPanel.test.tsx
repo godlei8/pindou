@@ -109,3 +109,19 @@ test("脸够大、或者没检测到人脸时不提示", () => {
                        faceHint={null} onChange={() => {}} />);
   expect(screen.queryByRole("note")).toBeNull();
 });
+
+test("「去掉背景」开关回调参数", async () => {
+  const onChange = vi.fn();
+  render(<ParamPanel current={null} params={{ ...DEFAULT_PARAMS, remove_background: true }}
+                     sizes={[]} onChange={onChange} />);
+  const box = screen.getByLabelText(/去掉背景/) as HTMLInputElement;
+  expect(box.checked).toBe(true);
+  await userEvent.click(box);
+  expect(onChange.mock.calls.at(-1)![0].remove_background).toBe(false);
+});
+
+test("开了去背景却没找到纯色背景时说明原因和办法", () => {
+  render(<ParamPanel current={null} params={DEFAULT_PARAMS} sizes={[]} backgroundNotFound
+                     onChange={() => {}} />);
+  expect(screen.getByText(/没找到能去掉的纯色背景/).textContent).toContain("橡皮擦");
+});
