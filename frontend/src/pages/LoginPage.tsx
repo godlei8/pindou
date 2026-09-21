@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { ApiError } from "../api/client";
 import { useAuth } from "../hooks/useAuth";
@@ -58,10 +58,15 @@ function Sprite({ fused }: { fused: boolean }) {
 export function LoginPage() {
   const { login, register } = useAuth();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const { pathname } = useLocation();
+  const [params] = useSearchParams();
+  // 邀请链接 /register?code=XXXX：直接进注册，邀请码填好
+  const linkCode = (params.get("code") ?? "").trim();
+  const [mode, setMode] = useState<"login" | "register">(
+    pathname === "/register" || linkCode ? "register" : "login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
+  const [inviteCode, setInviteCode] = useState(linkCode);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [fused, setFused] = useState(false);
@@ -88,8 +93,8 @@ export function LoginPage() {
       <div className="auth-card">
         <Sprite fused={fused} />
 
-        <h1 className="auth-title">拼豆图纸生成</h1>
-        <p className="auth-sub">把图片变成能拼的图纸</p>
+        <h1 className="auth-title">豆格格</h1>
+        <p className="auth-sub">拼豆图纸生成 · 把图片变成能拼的图纸</p>
 
         <form onSubmit={submit} className="auth-form">
           <label htmlFor="username">用户名</label>
@@ -106,7 +111,9 @@ export function LoginPage() {
               <label htmlFor="invite">邀请码</label>
               <input id="invite" value={inviteCode} spellCheck={false}
                      onChange={(e) => setInviteCode(e.target.value)} />
-              <p className="auth-hint">找已经在用的人要一个</p>
+              <p className="auth-hint">{linkCode && inviteCode === linkCode
+                ? "已从邀请链接填好，设个用户名和密码就行"
+                : "找已经在用的人要一个"}</p>
             </>
           )}
 

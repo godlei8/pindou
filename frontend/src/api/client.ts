@@ -92,6 +92,9 @@ export const api = {
   me: () => request<User>("/auth/me"),
   login: (username: string, password: string) =>
     postJson<User>("/auth/login", { username, password }),
+  /** 管理后台的登录：不是管理员的账号会被拒（403），也不会拿到会话。 */
+  adminLogin: (username: string, password: string) =>
+    postJson<User>("/auth/admin-login", { username, password }),
   register: (username: string, password: string, invite_code: string) =>
     postJson<User>("/auth/register", { username, password, invite_code }),
   logout: () => request<null>("/auth/logout", { method: "POST" }),

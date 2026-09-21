@@ -8,6 +8,7 @@ interface AuthValue {
   user: User | null;
   loading: boolean;
   login(username: string, password: string): Promise<void>;
+  adminLogin(username: string, password: string): Promise<void>;
   register(username: string, password: string, inviteCode: string): Promise<void>;
   logout(): Promise<void>;
   refresh(): Promise<void>;
@@ -39,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     loading,
     login: async (u, p) => { setUser(await api.login(u, p)); },
+    adminLogin: async (u, p) => { setUser(await api.adminLogin(u, p)); },
     register: async (u, p, code) => { setUser(await api.register(u, p, code)); },
     logout: async () => { await api.logout(); setUser(null); },
     refresh,

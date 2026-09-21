@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import current_user
@@ -34,6 +34,18 @@ def register_endpoint(body: RegisterIn, response: Response,
 @router.post("/login", response_model=UserOut)
 def login_endpoint(body: LoginIn, response: Response, db: Session = Depends(get_db)) -> User:
     user = authenticate(db, body.username, body.password)
+    _set_cookie(response, user.id)
+    return user
+
+
+@router.post("/admin-login", response_model=UserOut)
+def admin_login_endpoint(body: LoginIn, response: Response,
+                         db: Session = Depends(get_db)) -> User:
+    """管理后台自己的登录入口：只放管理员进来。密码错误照旧 401，
+    密码对但不是管理员给 403——不发会话，普通账号在这里登不进去。"""
+    user = authenticate(db, body.username, body.password)
+    if not user.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "这个账号不是管理员")
     _set_cookie(response, user.id)
     return user
 
