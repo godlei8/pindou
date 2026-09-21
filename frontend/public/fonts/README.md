@@ -9,7 +9,7 @@
   可自由商用、子集化、改名、再分发。
   ⚠️ GitHub 仓库侧边栏显示的 MIT 是**构建程序**的协议，不是字体的协议，别照抄。
 - 子集内容：GB2312 一级汉字 3755 字 + 本项目界面/后端文案用字 + ASCII + 常用标点
-  = 3910 码位，130 KB（完整字体 646 KB）
+  = 3911 码位（含品牌名「馨」），130 KB
 
 ## 为什么选它
 
@@ -35,3 +35,5 @@ python -m fontTools.subset fusion-pixel-12px-proportional-zh_hans.ttf \
   --output-file=fusion-pixel-12px-zh_hans-subset.woff2
 ```
 `chars.txt` = GB2312 一级汉字 + `grep` 出的项目用字。界面新增文案后需重跑。
+最省事的做法：把现有子集的全部码位导出来再加上新字，这样不会漏掉旧字。
+后端 `backend/app/assets/fonts/` 的 TTF 用同一份 chars.txt、去掉 `--flavor=woff2` 再生成一次。
