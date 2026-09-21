@@ -34,8 +34,13 @@ def test_cartoon_end_to_end(palette):
     assert res.report.confetti_pct < 10
 
 
-def test_raising_lambda_measurably_reduces_confetti_on_cartoon(palette):
-    """λ 是散点的有效杠杆——这条比任何绝对阈值都更能说明算法在起作用。"""
+def test_raising_lambda_measurably_reduces_confetti_on_cartoon(palette, monkeypatch):
+    """λ 是散点的有效杠杆——这条比任何绝对阈值都更能说明算法在起作用。
+
+    关掉平涂取色：cartoon 是平涂插画，取色后本来就没有散点，看不出 λ 的作用。
+    这里要量的是"面积平均出来的过渡色"这条路上（照片走的就是它），λ 能不能压住散点。"""
+    from app.core import flat
+    monkeypatch.setattr(flat, "detect_inks", lambda rgba: None)
     low = _run("cartoon.png", grid_long_side=48, max_colors=8, smoothness=0.0)
     high = _run("cartoon.png", grid_long_side=48, max_colors=8, smoothness=4.0)
     assert high.report.confetti_pct < low.report.confetti_pct - 2.0

@@ -3,7 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from app.core import background, detect, downsample, face, image_io
+from app.core import background, detect, downsample, face, flat, image_io
 from app.core.assign import assign_labels
 from app.core.buildability import analyze
 from app.core.color import pairwise_delta_e, srgb_to_lab, srgb_to_oklab
@@ -29,7 +29,12 @@ def _downsample(rgba: np.ndarray, params: Params):
     if info is not None:
         return downsample.downsample_mode(rgba, info), "pixel_art"
     rows, cols = downsample.grid_shape(rgba.shape[0], rgba.shape[1], params.grid_long_side)
-    return downsample.downsample_area(rgba, rows, cols), "image"
+    cells = downsample.downsample_area(rgba, rows, cols)
+    # 平涂插画：每格取原图自己的一种颜色，不要抗锯齿和缩小混出来的过渡色（见 core/flat.py）
+    inks = flat.detect_inks(rgba)
+    if inks is not None:
+        cells = flat.downsample_inks(rgba, rows, cols, inks, cells.coverage)
+    return cells, "image"
 
 
 def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
