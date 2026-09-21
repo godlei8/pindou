@@ -141,7 +141,8 @@ export function drawPattern(ctx: Ctx, g: Grid, colors: Map<number, string>,
   }
   for (const [r, c] of o.highlight ?? []) {
     ctx.strokeStyle = HIGHLIGHT;
-    ctx.lineWidth = 2;
+    // 格子小的时候 2px 描边占掉半格，几百格一起亮就糊成一片红
+    ctx.lineWidth = cp >= 12 ? 2 : 1;
     ctx.strokeRect(c * cp + 1, r * cp + 1, Math.max(1, cp - 2), Math.max(1, cp - 2));
   }
 }

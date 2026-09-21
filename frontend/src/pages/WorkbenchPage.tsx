@@ -11,6 +11,7 @@ import { ParamPanel } from "../components/ParamPanel";
 import { PatternCanvas } from "../components/PatternCanvas";
 import { SourcePanel } from "../components/SourcePanel";
 import { ToolBar } from "../components/ToolBar";
+import { VersionList } from "../components/VersionList";
 import { useEditor } from "../hooks/useEditor";
 import { useElementSize } from "../hooks/useElementSize";
 import { usePattern } from "../hooks/usePattern";
@@ -32,6 +33,8 @@ export function WorkbenchPage() {
   const [wrapRef, wrapSize, wrapNode] = useElementSize<HTMLDivElement>();
   /** null = 跟随窗口自动适应；有值 = 用户手动缩放过。 */
   const [manualPx, setManualPx] = useState<number | null>(null);
+  /** 正在图上定位的色号索引。点材料清单里的一行就能看见它铺在哪儿。 */
+  const [locating, setLocating] = useState<number | null>(null);
 
   // 后端返回新版本 → 重置编辑基线
   useEffect(() => {
@@ -40,7 +43,7 @@ export function WorkbenchPage() {
   }, [patternId]);
 
   // 换了图纸（多半也换了格数）就回到自动适应，别让上一张的缩放留着
-  useEffect(() => { setManualPx(null); }, [patternId]);
+  useEffect(() => { setManualPx(null); setLocating(null); }, [patternId]);
 
   const colorMap = useMemo(
     () => new Map(p.palette.map((c) => [c.index, c.hex])), [p.palette]);
@@ -58,6 +61,14 @@ export function WorkbenchPage() {
   }, [editor.state.grid, wrapSize.w, wrapSize.h]);
 
   const cellPx = manualPx ?? fitPx;
+
+  const highlight = useMemo<[number, number][]>(() => {
+    if (locating === null) return [];
+    const out: [number, number][] = [];
+    editor.state.grid.forEach((row, r) =>
+      row.forEach((v, c) => { if (v === locating) out.push([r, c]); }));
+    return out;
+  }, [locating, editor.state.grid]);
 
   // Ctrl+滚轮缩放。必须用原生监听器：React 的 onWheel 是被动的，preventDefault 无效，
   // 不拦住浏览器就会去缩放整个页面。
@@ -112,14 +123,8 @@ export function WorkbenchPage() {
             onDismissError={p.dismissAiError}
           />
         )}
-        {p.pattern && (
-          <p className="empty">
-            当前版本 {p.pattern.id.slice(0, 8)}
-            {/* origin 说的是"怎么产生的"（generated/edited/patched），
-                "基于哪张图"只有 ai_render_id 说了算 */}
-            （{p.pattern.ai_render_id ? "基于 AI 图" : "基于原图"}）
-          </p>
-        )}
+        <VersionList versions={p.versions} currentId={p.pattern?.id ?? null}
+                     disabled={p.busy} onSelect={(id) => void p.selectVersion(id)} />
       </div>
 
       <div className="editor">
@@ -144,6 +149,7 @@ export function WorkbenchPage() {
           <PatternCanvas grid={editor.state.grid} colors={colorMap} cellPx={cellPx}
                          codeOf={(i) => codeMap.get(i) ?? String(i)}
                          showCodes={cellPx >= 18}
+                         highlight={highlight}
                          protectedCells={editor.state.protectedCells}
                          onCellDown={(r, c) => editor.applyAt(r, c)}
                          onCellEnter={(r, c) => editor.applyAt(r, c)}
@@ -158,7 +164,8 @@ export function WorkbenchPage() {
                    onFeedback={p.pattern
                      ? ({ kind, note }) => void p.sendFeedback(kind, note, [])
                      : undefined} />
-        <MaterialList materials={p.pattern?.materials ?? []} />
+        <MaterialList materials={p.pattern?.materials ?? []}
+                      locating={locating} onLocate={setLocating} />
       </div>
     </main>
   );

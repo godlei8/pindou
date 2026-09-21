@@ -37,7 +37,7 @@ function pattern(id: string, aiRenderId: string | null, score = 90) {
 
 const PROJECT = {
   id: "p1", name: "小熊猫", created_at: "2026-09-20T00:00:00Z",
-  patterns: [{ id: "pat1", origin: "generated", parent_id: null,
+  patterns: [{ id: "pat1", origin: "generated", parent_id: null, ai_render_id: null,
                created_at: "2026-09-20T00:00:00Z", score: 90, n_colors: 1 }],
 };
 
@@ -169,20 +169,22 @@ describe("AI 重绘", () => {
 describe("版本来源标注", () => {
   beforeEach(() => vi.unstubAllGlobals());
 
-  test("AI 出的图纸标为「基于 AI 图」", async () => {
+  test("AI 出的那一版在版本列表里标为「基于 AI 图」", async () => {
     // origin 对两种来源都是 "generated"，只有 ai_render_id 能区分。
     // 曾经按 origin 判断，结果 AI 出的图纸被标成「基于原图」。
     vi.stubGlobal("fetch",
       makeFetch([{ status: "done", result: { pattern_id: "pat-ai", ai_render_id: "r1" } }]));
     mount();
     await redraw();
-    await waitFor(() => expect(screen.getByText(/基于 AI 图/)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /基于 AI 图/ })).toBeTruthy());
   });
 
-  test("原图出的图纸标为「基于原图」", async () => {
+  test("原图出的那一版标为「基于原图」", async () => {
     vi.stubGlobal("fetch", makeFetch([{ status: "pending", result: null }]));
     mount();
-    await waitFor(() => expect(screen.getByText(/基于原图/)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /基于原图/ })).toBeTruthy());
   });
 });
 

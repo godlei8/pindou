@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, DEFAULT_PARAMS, api } from "../api/client";
-import type { EditCell, PaletteColor, Pattern, PatternParams, Project, SizeSuggestion }
-  from "../api/types";
+import type { EditCell, PaletteColor, Pattern, PatternBrief, PatternParams, Project,
+  SizeSuggestion } from "../api/types";
 
 const DEBOUNCE_MS = 300;
 const POLL_MS = 1500;
@@ -14,6 +14,7 @@ export type AiPhase = "idle" | "queued" | "running" | "failed";
 export function usePattern(projectId: string) {
   const [project, setProject] = useState<Project | null>(null);
   const [pattern, setPattern] = useState<Pattern | null>(null);
+  const [versions, setVersions] = useState<PatternBrief[]>([]);
   const [params, setParamsState] = useState<PatternParams>(DEFAULT_PARAMS);
   const [sizes, setSizes] = useState<SizeSuggestion[]>([]);
   const [palette, setPalette] = useState<PaletteColor[]>([]);
@@ -43,6 +44,13 @@ export function usePattern(projectId: string) {
   const adopt = useCallback((p: Pattern) => {
     setPattern(p);
     aiRenderId.current = p.ai_render_id;
+    // 乐观维护版本列表：新版本的信息这里全都有，不必为此再请求一次项目
+    setVersions((vs) => vs.some((v) => v.id === p.id) ? vs : [{
+      id: p.id, origin: p.origin, parent_id: p.parent_id,
+      ai_render_id: p.ai_render_id, created_at: p.created_at,
+      score: p.buildability?.score ?? null,
+      n_colors: Object.keys(p.color_stats ?? {}).length,
+    }, ...vs]);
   }, []);
 
   const recompute = useCallback(async (next: PatternParams) => {
@@ -69,6 +77,7 @@ export function usePattern(projectId: string) {
         ]);
         if (!mounted) return;
         setProject(proj);
+        setVersions(proj.patterns);
         setPalette(colors);
         api.suggestSizes(projectId, DEFAULT_PARAMS.grid_long_side)
           .then((s) => { if (mounted) setSizes(s); })
@@ -147,8 +156,25 @@ export function usePattern(projectId: string) {
     }
   }, [projectId, params, adopt]);
 
+  /** 切到某个历史版本。之前生成了一堆版本却没有任何路径回去。 */
+  const selectVersion = useCallback(async (id: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      const pat = await api.getPattern(id);
+      const merged = { ...DEFAULT_PARAMS, ...pat.params };
+      adopt(pat);
+      settled.current = merged;   // 这份参数已经有图纸了，别触发一轮重算
+      setParamsState(merged);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }, [adopt]);
+
   return {
-    project, pattern, params, sizes, palette, loading, busy, error,
+    project, pattern, params, sizes, palette, loading, busy, error, versions, selectVersion,
     aiPhase, aiError, aiRenderId: pattern?.ai_render_id ?? null,
     setParams: setParamsState,
     generateWithAi,

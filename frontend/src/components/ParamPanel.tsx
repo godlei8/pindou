@@ -15,26 +15,34 @@ export function ParamPanel({ params, sizes, disabled, onChange }: Props) {
     <section className="panel">
       <h2>参数</h2>
 
-      <label htmlFor="grid">长边格数</label>
-      <input id="grid" type="number" min={8} max={200} value={params.grid_long_side}
-             disabled={disabled}
-             onChange={(e) => set("grid_long_side", Number(e.target.value))} />
+      {/* 两个数字并排。原来各占一整行，一个参数面板吃掉右栏的一半高度，
+          材料清单只剩表头。 */}
+      <div className="field-pair">
+        <div>
+          <label htmlFor="grid">长边格数</label>
+          <input id="grid" type="number" min={8} max={200} value={params.grid_long_side}
+                 disabled={disabled}
+                 onChange={(e) => set("grid_long_side", Number(e.target.value))} />
+        </div>
+        <div>
+          <label htmlFor="colors">最多色数</label>
+          <input id="colors" type="number" min={2} max={64} value={params.max_colors}
+                 disabled={disabled}
+                 onChange={(e) => set("max_colors", Number(e.target.value))} />
+        </div>
+      </div>
 
       {sizes.length > 0 && (
         <div className="sizes">
           {sizes.map((s) => (
             <button key={s.long_side} type="button" disabled={disabled}
+                    aria-pressed={params.grid_long_side === s.long_side}
                     onClick={() => set("grid_long_side", s.long_side)}>
               {s.long_side} 格
             </button>
           ))}
         </div>
       )}
-
-      <label htmlFor="colors">最多色数</label>
-      <input id="colors" type="number" min={2} max={64} value={params.max_colors}
-             disabled={disabled}
-             onChange={(e) => set("max_colors", Number(e.target.value))} />
 
       <label htmlFor="lambda">平整度 λ</label>
       <input id="lambda" type="range" min={0} max={8} step={0.5} value={params.smoothness}
@@ -44,10 +52,12 @@ export function ParamPanel({ params, sizes, disabled, onChange }: Props) {
         ? "0 = 纯最近色，等同市面工具的行为"
         : `λ=${params.smoothness}，越大散点越少、越平整`}</small>
 
-      <label htmlFor="dither">抖动</label>
-      <input id="dither" type="checkbox" checked={params.dither} disabled={disabled}
-             onChange={(e) => set("dither", e.target.checked)} />
-      <small>开启会显著降低可拼性（散点变多）</small>
+      {/* 复选框和它的说明排一行，别竖着堆三层 */}
+      <label className="field-inline" htmlFor="dither">
+        <input id="dither" type="checkbox" checked={params.dither} disabled={disabled}
+               onChange={(e) => set("dither", e.target.checked)} />
+        抖动<small>开启会显著降低可拼性（散点变多）</small>
+      </label>
     </section>
   );
 }

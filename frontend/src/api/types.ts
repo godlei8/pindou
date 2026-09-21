@@ -13,6 +13,8 @@ export interface PatternBrief {
   id: string;
   origin: string;
   parent_id: string | null;
+  /** 这版基于哪张 AI 图。null = 基于原图。origin 说的是另一件事。 */
+  ai_render_id: string | null;
   created_at: string;
   score: number | null;
   n_colors: number;

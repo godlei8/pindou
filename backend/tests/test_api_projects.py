@@ -155,3 +155,14 @@ def test_ai_render_requires_owning_the_project(auth_client, client, invite_other
                 json={"username": "intruder2", "password": "pw12345678",
                       "invite_code": "OTHER"})
     assert client.get(f"/api/projects/{pid}/ai-renders/{rid}/image").status_code == 404
+
+
+def test_brief_marks_which_versions_came_from_ai(auth_client, db):
+    """版本列表靠 ai_render_id 区分来源——origin 对两种来源都是 generated。"""
+    pid = _upload(auth_client).json()["id"]
+    auth_client.post(f"/api/projects/{pid}/patterns",
+                     json={"source": "original", "params": {"grid_long_side": 16}})
+
+    briefs = auth_client.get(f"/api/projects/{pid}").json()["patterns"]
+    assert briefs and all(b["ai_render_id"] is None for b in briefs)
+    assert {b["origin"] for b in briefs} == {"generated"}

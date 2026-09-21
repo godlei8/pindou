@@ -13,18 +13,47 @@ import type { EditorState } from "../src/hooks/useEditor";
 const COLORS = new Map([[0, "#FF0000"], [1, "#00FF00"], [2, "#0000FF"]]);
 
 describe("MaterialList", () => {
+  const MATERIALS = [
+    { index: 0, code: "H2", hex: "#FFFFFF", count: 1159, packs: 2 },
+    { index: 1, code: "R10", hex: "#FFDD00", count: 858, packs: 1 },
+  ];
+  const renderList = (props: Partial<{ locating: number | null; onLocate: (i: number | null) => void }> = {}) =>
+    render(<MaterialList materials={MATERIALS} locating={null} onLocate={() => {}} {...props} />);
+
   test("列出色号、颗数与包数", () => {
-    render(<MaterialList materials={[
-      { index: 0, code: "H2", hex: "#FFFFFF", count: 1159, packs: 2 },
-      { index: 1, code: "R10", hex: "#FFDD00", count: 858, packs: 1 },
-    ]} />);
+    renderList();
     expect(screen.getByText("H2")).toBeTruthy();
-    expect(screen.getByText(/1159/)).toBeTruthy();
-    expect(screen.getByText(/2 包/)).toBeTruthy();
+    expect(screen.getByText("1159")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
+  });
+
+  test("给出合计——买豆子的人不该自己逐行加", () => {
+    renderList();
+    expect(screen.getByText(/共 2017 颗 · 2 色 · 3 包/)).toBeTruthy();
+  });
+
+  test("点一行请求在图上定位这个色号，再点取消", async () => {
+    const onLocate = vi.fn();
+    const { rerender } = render(
+      <MaterialList materials={MATERIALS} locating={null} onLocate={onLocate} />);
+    await userEvent.click(screen.getByRole("button", { name: /定位 R10/ }));
+    expect(onLocate).toHaveBeenCalledWith(1);
+
+    rerender(<MaterialList materials={MATERIALS} locating={1} onLocate={onLocate} />);
+    await userEvent.click(screen.getByRole("button", { name: /定位 R10/ }));
+    expect(onLocate).toHaveBeenLastCalledWith(null);
+  });
+
+  test("占比条按最大色归一——否则色数一多全是看不见的细条", () => {
+    const { container } = renderList();
+    const bars = [...container.querySelectorAll(".share > span")] as HTMLElement[];
+    expect(bars[0].style.width).toBe("100%");            // 1159 是最大的
+    expect(parseFloat(bars[1].style.width)).toBeCloseTo(858 / 1159 * 100, 1);
   });
 
   test("空清单不崩", () => {
-    expect(() => render(<MaterialList materials={[]} />)).not.toThrow();
+    expect(() => render(
+      <MaterialList materials={[]} locating={null} onLocate={() => {}} />)).not.toThrow();
   });
 });
 

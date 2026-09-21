@@ -391,14 +391,14 @@ main { padding: var(--sp-6) var(--sp-4); }
 
 .workbench .side > .materials-panel {
   flex: 1 1 auto;
-  min-height: 120px;            /* 再挤也得露出几行 */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .workbench .side > .materials-panel .materials {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 72px;             /* 约三行。再挤也不能只剩表头 */
   overflow-y: auto;
 }
 
@@ -457,29 +457,68 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 
 /* ══ 材料清单 ═══════════════════════════════════════════════ */
 
-.materials { list-style: none; padding: 0; margin: 0; }
-.materials li {
+/* 四列定死：色块 / 色号 / 占比条 / 颗 / 包。
+   色号列必须固定宽——拉丁字母在比例模式下不等宽，靠字体对不齐（见 DESIGN.md §7.4）。 */
+.materials-head, .material-row {
   display: grid;
-  grid-template-columns: 20px 48px 1fr auto;
+  grid-template-columns: 16px 44px minmax(24px, 1fr) 52px 28px;
   gap: var(--sp-2);
   align-items: center;
-  padding: var(--sp-1) 0;
+}
+.materials-head {
+  margin: 0 0 var(--sp-1);
+  padding: 0 var(--sp-1) var(--sp-1);
+  border-bottom: var(--bd) solid var(--ink);
+  color: var(--ink-mute);
+  grid-column: 1 / -1;
+}
+.materials-head .code { grid-column: 2; }
+.materials-head .count, .materials-head .packs { text-align: right; }
+
+.materials { list-style: none; padding: 0; margin: 0; }
+
+.material-row {
+  width: 100%;
+  padding: 2px var(--sp-1);     /* 行压密：一屏能多看四五个色号 */
+  border: none;
+  box-shadow: none;
+  background: none;
+  text-align: left;
   border-bottom: var(--bd) solid var(--peg);
 }
-.materials li:last-child { border-bottom: none; }
-.materials i {
-  width: 20px; height: 20px;
+.materials li:last-child .material-row { border-bottom: none; }
+.material-row:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  background: var(--surface-sunk);
+}
+.material-row:active:not(:disabled) { transform: none; box-shadow: none; }
+.material-row:focus-visible { box-shadow: var(--focus); }
+/* 正在图上定位的那一行整行反色——和清单的选中约定一致（DESIGN.md §7.4） */
+.material-row[aria-pressed="true"] { background: var(--ink); color: var(--board); }
+.material-row[aria-pressed="true"]:hover { background: var(--ink); }
+.material-row[aria-pressed="true"] .share { background: color-mix(in srgb, var(--board) 30%, transparent); }
+.material-row[aria-pressed="true"] .share > span { background: var(--board); }
+
+.material-row i {
+  width: 16px; height: 16px;
   display: block;
   border: var(--bd) solid var(--ink);
 }
-/* 色号与数量恒为 ink——文字在卡片底上，不在色块上，不要做反色自适应 */
-.materials .code { color: var(--ink); }
-.materials .count, .materials .packs {
+/* 色号与数量恒为当前行的前景色——文字在行底上，不在色块上，不做反色自适应 */
+.material-row .count, .material-row .packs {
   text-align: right;
-  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.materials .packs { color: var(--ink-mute); }
+
+/* 占比条：实心方块，不是渐变。一眼看出哪几个色号是大头。 */
+.material-row .share {
+  height: 8px;
+  display: block;
+  background: var(--surface-sunk);
+  border: var(--bd) solid var(--peg);
+}
+.material-row .share > span { display: block; height: 100%; background: var(--ink-mute); }
 
 /* ══ 可拼性 ═════════════════════════════════════════════════ */
 
@@ -608,8 +647,10 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
     overflow: visible;
   }
   .workbench .side, .workbench .editor { height: auto; overflow: visible; }
-  .workbench .side > .materials-panel { flex: none; overflow: visible; }
-  .workbench .side > .materials-panel .materials { overflow: visible; }
+  .workbench .side > .materials-panel,
+  .workbench .side > .versions-panel { flex: none; overflow: visible; }
+  .workbench .side > .materials-panel .materials,
+  .workbench .side > .versions-panel .versions { overflow: visible; }
   .workbench .editor > .canvas-wrap { flex: none; height: 70vh; }
 }
 
@@ -827,3 +868,90 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 /* 工作台两侧的面板收紧一档：一屏要装下四个面板 */
 .workbench .side > .panel { padding: var(--sp-3); }
 .workbench .side > .panel > h2 { margin-bottom: var(--sp-2); }
+
+/* ══ 版本列表 ═══════════════════════════════════════════════
+   之前生成了一堆版本，「当前版本 6610cca6」只是条死信息，没有任何路径回去。 */
+
+.versions { list-style: none; padding: 0; margin: 0; }
+.version-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px 36px 32px 1fr;
+  gap: var(--sp-1);
+  align-items: center;
+  padding: var(--sp-1);
+  border: none;
+  box-shadow: none;
+  background: none;
+  text-align: left;
+  border-bottom: var(--bd) solid var(--peg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;          /* 换行会把行撑成两倍高 */
+}
+.versions li:last-child .version-row { border-bottom: none; }
+.version-row:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+  background: var(--surface-sunk);
+}
+.version-row:active:not(:disabled) { transform: none; box-shadow: none; }
+.version-row:focus-visible { box-shadow: var(--focus); }
+/* 这里的 .score 不是可拼性面板那个 36px 大字——同名不同物，必须显式盖回来 */
+.version-row .score {
+  text-align: right;
+  font-size: 12px;
+  line-height: 16px;
+}
+.version-row .source, .version-row .colors, .version-row .time { color: var(--ink-mute); }
+.version-row .time { text-align: right; }
+
+/* 当前版本：整行反色，且不可点（点了也是它自己） */
+.version-row[aria-current] {
+  background: var(--ink);
+  color: var(--board);
+  opacity: 1;
+}
+.version-row[aria-current] .source,
+.version-row[aria-current] .colors,
+.version-row[aria-current] .time { color: var(--board); }
+.version-row:disabled:not([aria-current]) { background: none; }
+
+/* 左栏：版本列表吃掉剩余高度并自己滚，别在底下留一大片空板 */
+.workbench .side > .versions-panel {
+  flex: 1 1 auto;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workbench .side > .versions-panel .versions {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ══ 参数面板的紧凑排布 ═════════════════════════════════════ */
+
+.field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.field-pair input { width: 100%; }
+
+/* 复选框 + 名字 + 说明排一行 */
+.field-inline {
+  display: grid;
+  grid-template-columns: 16px auto 1fr;
+  gap: var(--sp-2);
+  align-items: center;
+  margin-top: var(--sp-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+.field-inline small { display: inline; }
+
+/* 尺寸预设：选中的那个要看得出来 */
+.sizes button[aria-pressed="true"] { background: var(--ink); color: var(--board); }
+.sizes button[aria-pressed="true"]:hover { background: var(--ink); }

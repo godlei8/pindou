@@ -37,6 +37,7 @@ class PatternBrief(_Base):
     id: uuid.UUID
     origin: str
     parent_id: uuid.UUID | None
+    ai_render_id: uuid.UUID | None = None
     created_at: datetime
     score: float | None = None
     n_colors: int = 0

@@ -19,7 +19,7 @@ const COLORS = [
 
 function makePattern(id: string) {
   return {
-    id, project_id: "p1", parent_id: null, origin: "generated",
+    id, project_id: "p1", parent_id: null, origin: "generated", ai_render_id: null,
     params: { grid_long_side: 58, max_colors: 24, smoothness: 2, dither: false,
               palette_id: "mard", small_color_threshold: 10, lock_outlines: true },
     grid: [[0, 1], [1, 0]],
@@ -35,7 +35,7 @@ function makePattern(id: string) {
 
 const PROJECT = {
   id: "p1", name: "测试", created_at: "2026-09-20T00:00:00Z",
-  patterns: [{ id: "pat1", origin: "generated", parent_id: null,
+  patterns: [{ id: "pat1", origin: "generated", parent_id: null, ai_render_id: null,
                created_at: "2026-09-20T00:00:00Z", score: 88, n_colors: 2 }],
 };
 
@@ -84,7 +84,8 @@ describe("WorkbenchPage", () => {
   test("载入项目最新版本并显示评分与清单", async () => {
     vi.stubGlobal("fetch", routeFetch());
     mount();
-    await waitFor(() => expect(screen.getByText("88")).toBeTruthy());
+    await waitFor(() => expect(document.querySelector(".score")!.textContent)
+      .toContain("88"));
     expect(screen.getByText("H2")).toBeTruthy();
     expect(screen.getByText(/对角虚连/)).toBeTruthy();
   });
@@ -105,12 +106,32 @@ describe("WorkbenchPage", () => {
     await waitFor(() => expect(count()).toBe(before + 1), { timeout: 3000 });
   });
 
-  test("接受修复建议后载入新版本", async () => {
+  test("接受修复建议后载入新版本，并进入版本列表", async () => {
     vi.stubGlobal("fetch", routeFetch());
+    mount();
+    const rows = () => screen.getAllByRole("button", { name: /^第 \d+ 版/ }).length;
+    await waitFor(() => screen.getByRole("button", { name: /应用/ }));
+    const before = rows();
+
+    await userEvent.click(screen.getByRole("button", { name: /应用/ }));
+
+    // 修复出的是新一版，得能回去——之前生成一堆版本却没有任何路径回退
+    await waitFor(() => expect(rows()).toBe(before + 1));
+  });
+
+  test("点历史版本会把它载入回来", async () => {
+    const fetchMock = routeFetch();
+    vi.stubGlobal("fetch", fetchMock);
     mount();
     await waitFor(() => screen.getByRole("button", { name: /应用/ }));
     await userEvent.click(screen.getByRole("button", { name: /应用/ }));
-    await waitFor(() => expect(screen.getByText(/pat2/)).toBeTruthy());
+    await waitFor(() => screen.getAllByRole("button", { name: /^第 1 版/ }));
+
+    // 第 1 版 = 最早那版 pat1，当前是新出的 pat2，所以它可点
+    await userEvent.click(screen.getByRole("button", { name: /^第 1 版/ }));
+    await waitFor(() => expect(
+      fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/patterns/pat1")).length,
+    ).toBeGreaterThan(1));
   });
 
   test("画笔改格后出现未保存标识，保存提交显式格子列表", async () => {

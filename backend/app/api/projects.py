@@ -31,7 +31,10 @@ def _owned_project(db: Session, user: User, project_id: uuid.UUID) -> Project:
 def _briefs(db: Session, project_id: uuid.UUID) -> list[dict]:
     rows = db.scalars(select(Pattern).where(Pattern.project_id == project_id)
                       .order_by(Pattern.created_at.desc())).all()
+    # ai_render_id 要带上：版本列表靠它区分"这版是 AI 出的还是原图出的"，
+    # origin 说的是另一件事（怎么产生的：generated / edited / patched）。
     return [{"id": p.id, "origin": p.origin, "parent_id": p.parent_id,
+             "ai_render_id": p.ai_render_id,
              "created_at": p.created_at, "score": (p.buildability or {}).get("score"),
              "n_colors": len(p.color_stats or {})} for p in rows]
 
