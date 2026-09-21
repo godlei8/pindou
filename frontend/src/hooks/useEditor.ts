@@ -4,7 +4,8 @@ import type { EditCell, Grid } from "../api/types";
 import { EditStack, applyEditsToGrid, cloneGrid, diffToEdits, floodFillCells, inBounds }
   from "../lib/grid";
 
-export type Tool = "brush" | "bucket" | "eyedropper" | "eraser" | "protect";
+/** pan = 只看不改：触屏上用手指拖动、双指缩放画布。 */
+export type Tool = "pan" | "brush" | "bucket" | "eyedropper" | "eraser" | "protect";
 
 export interface EditorState {
   grid: Grid;
@@ -55,7 +56,7 @@ export function createEditor(initial: Grid,
 
     applyAt(r, c) {
       const grid = stack.current;
-      if (!inBounds(grid, r, c)) return;
+      if (tool === "pan" || !inBounds(grid, r, c)) return;
 
       if (tool === "eyedropper") {
         color = grid[r][c];                 // 吸管只取色，不入撤销栈

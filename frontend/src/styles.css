@@ -822,8 +822,18 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 
 /* ══ 响应式 ═════════════════════════════════════════════════ */
 
+/* 默认（有鼠标）显示拖拽/粘贴提示，触屏换成相册/拍照 */
+.hint-touch { display: none; }
+@media (pointer: coarse) {
+  .hint-pointer { display: none; }
+  .hint-touch { display: inline; }
+}
+
 @media (max-width: 1100px) {
-  /* 窄屏排成一栏，高度交还给内容，页面正常滚动 */
+  /* 窄屏排成一栏，高度交还给内容，页面正常滚动。
+     子项的 min-height 必须放开：宽屏为了各栏自己滚动设成了 0，
+     窄屏还留着的话，main 被 flex 压成一屏高时各行会被挤扁、互相叠在一起。 */
+  .home > *, .workbench > * { min-height: auto; }
   .workbench {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
@@ -835,7 +845,110 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
   .workbench .side > .materials-panel .materials,
   .workbench .side > .versions-panel .versions { overflow: visible; }
   .workbench .editor > .canvas-wrap { flex: none; height: 70vh; }
+
+  /* 首页：先干活，后介绍。老用户每次进来都要先划过一屏介绍才看到自己的图纸 */
+  .home { display: flex; flex-direction: column; }
+  .home-work { order: -1; }
+  .intro { border-bottom: none; border-top: var(--bd-2) solid var(--ink); }
 }
+
+/* ══ 手机 ════════════════════════════════════════════════════
+   工作台：画布常驻上半屏，下面一排标签切换面板，只有面板自己滚。
+   整页滚的话，一划到参数画布就出屏了——改参数却看不见图纸变化。 */
+@media (max-width: 900px) {
+  .wide-only { display: none; }
+  .topbar { gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); }
+  .topbar .back { white-space: nowrap; }
+  .topbar .crumb { flex: 1 1 auto; padding-left: var(--sp-2); }
+  .topbar .quota { white-space: nowrap; }
+
+  .intro-title { font-size: 24px; line-height: 32px; }
+  .home-work { padding: var(--sp-4) var(--sp-3); }
+  .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+
+  .workbench.is-phone {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  .is-phone .editor {
+    flex: none;
+    height: auto;
+    overflow: visible;
+    padding: var(--sp-2) var(--sp-3) 0;
+  }
+  .is-phone .error { margin: 0 0 var(--sp-2); }
+
+  /* 工具条、色板各压成一行，横向滑动，不换行吃高度 */
+  .is-phone .toolbar,
+  .is-phone .swatches {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin-bottom: var(--sp-2);
+    padding-bottom: 6px;            /* 按下态的投影别被裁掉 */
+    scrollbar-width: none;
+  }
+  .is-phone .toolbar::-webkit-scrollbar,
+  .is-phone .swatches::-webkit-scrollbar { display: none; }
+  .is-phone .toolbar-group { flex-wrap: nowrap; flex: none; }
+  .is-phone .toolbar button { white-space: nowrap; }
+  .is-phone .swatch { flex: none; width: 36px; height: 36px; }
+  .is-phone .toolbar button, .is-phone .zoom button { min-height: 40px; }
+  .is-phone .dirty { white-space: nowrap; }
+
+  .is-phone .canvas-bar { margin-bottom: var(--sp-2); }
+  .is-phone .zoom small { display: none; }
+  .is-phone .editor > .canvas-wrap {
+    height: 36dvh;
+    padding: var(--sp-1);
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+
+  .phone-tabs {
+    flex: none;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin-top: var(--sp-3);
+    border-top: var(--bd-2) solid var(--ink);
+    border-bottom: var(--bd-2) solid var(--ink);
+    background: var(--surface);
+  }
+  .phone-tabs button {
+    min-height: 44px;
+    padding: 0 2px;
+    border: none;
+    border-right: var(--bd) solid var(--peg);
+    box-shadow: none;
+    background: none;
+    white-space: nowrap;
+  }
+  .phone-tabs button:last-child { border-right: none; }
+  .phone-tabs button:hover:not(:disabled),
+  .phone-tabs button:active:not(:disabled) { transform: none; box-shadow: none; background: none; }
+  .phone-tabs button[aria-selected="true"],
+  .phone-tabs button[aria-selected="true"]:is(:hover, :active):not(:disabled) {
+    background: var(--ink); color: var(--board);
+  }
+
+  .phone-panel {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+  .phone-panel > * { flex: none; margin-bottom: 0; }
+  .phone-panel .panel img { display: block; max-width: 100%; max-height: 240px;
+                             object-fit: contain; border: var(--bd) solid var(--ink); }
+}
+
+/* 拖动工具：手指拖画布、双指缩放，不画。画笔等工具仍然 touch-action:none，一拖就画 */
+.canvas-wrap.is-pan, .canvas-wrap.is-pan canvas { touch-action: pan-x pan-y; cursor: grab; }
 
 @media (max-width: 380px) {
   :root { --pitch: 18px; }

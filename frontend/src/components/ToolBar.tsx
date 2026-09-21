@@ -12,16 +12,19 @@ interface Props {
   onSave(): void;
   /** 额外的操作组（导出按钮）。同属"对图纸做点什么"，排在一起。 */
   extra?: ReactNode;
+  /** 触屏设备多一个「拖动」，排在最前面。 */
+  withPan?: boolean;
 }
 
 const TOOLS: Tool[] = ["brush", "bucket", "eyedropper", "eraser", "protect"];
 
-export function ToolBar({ state, saving, onTool, onUndo, onRedo, onSave, extra }: Props) {
+export function ToolBar({ state, saving, onTool, onUndo, onRedo, onSave, extra, withPan }: Props) {
+  const tools: Tool[] = withPan ? ["pan", ...TOOLS] : TOOLS;
   return (
     <div className="toolbar">
       {/* 工具和操作是两类东西，别排成一排等重的按钮 */}
       <div className="toolbar-group" role="group" aria-label="工具">
-        {TOOLS.map((t) => (
+        {tools.map((t) => (
           <button key={t} type="button" aria-pressed={state.tool === t} onClick={() => onTool(t)}>
             {TOOL_LABELS[t]}
           </button>

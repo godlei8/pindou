@@ -43,7 +43,10 @@ function TopBar() {
     <header className="topbar">
       {nav ? (
         <>
-          <button type="button" className="back" onClick={goHome}>← 返回首页</button>
+          {/* 手机上只显示「← 首页」，给项目名多留点地方 */}
+          <button type="button" className="back" aria-label="← 返回首页" onClick={goHome}>
+            ← <span className="wide-only">返回</span>首页
+          </button>
           <span className="crumb" title={nav.title}>{nav.title}</span>
         </>
       ) : (
@@ -51,10 +54,13 @@ function TopBar() {
       )}
       {/* 管理入口只给管理员；在后台里就不再显示自己 */}
       {user.is_admin && !inAdmin && (
-        <Link to="/admin" className="admin-link" onClick={leave(() => navigate("/admin"))}>管理后台</Link>
+        <Link to="/admin" className="admin-link" aria-label="管理后台" onClick={leave(() => navigate("/admin"))}>
+          <span className="wide-only">管理</span>后台
+        </Link>
       )}
       <span className="quota">
-        {user.username} · AI 额度 {user.ai_quota - user.ai_used}/{user.ai_quota}
+        <span className="wide-only">{user.username} · </span>
+        AI <span className="wide-only">额度 </span>{user.ai_quota - user.ai_used}/{user.ai_quota}
       </span>
       <button type="button" onClick={leave(() => void logout())}>退出</button>
     </header>

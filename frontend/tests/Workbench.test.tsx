@@ -274,3 +274,67 @@ describe("画布缩放与当前颜色", () => {
     expect(screen.getByText("R10")).toBeTruthy();
   });
 });
+
+/** 按查询串伪造 matchMedia：jsdom 没有它，工作台拿不到就走桌面布局。 */
+function stubMedia(matching: string[]) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: matching.includes(query), media: query, onchange: null,
+    addEventListener: () => {}, removeEventListener: () => {},
+    addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+  }));
+}
+
+describe("手机布局", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+
+  test("桌面没有标签页，导出在工具条里，也没有「拖动」", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    mount();
+    await waitFor(() => screen.getByRole("button", { name: "画笔" }));
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.getByRole("group", { name: "导出" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "拖动" })).toBeNull();
+  });
+
+  test("窄屏两侧栏收进标签页，默认显示参数，一次只显示一个面板", async () => {
+    stubMedia(["(max-width: 900px)"]);
+    vi.stubGlobal("fetch", routeFetch());
+    mount();
+    await waitFor(() => screen.getByRole("tablist", { name: "面板" }));
+    expect(screen.getByRole("tab", { name: "参数" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByLabelText("长边格数")).toBeTruthy();
+    expect(document.querySelector(".score")).toBeNull();          // 体检不在当前标签
+
+    await userEvent.click(screen.getByRole("tab", { name: "体检" }));
+    await waitFor(() => expect(document.querySelector(".score")!.textContent).toContain("88"));
+    expect(screen.queryByLabelText("长边格数")).toBeNull();
+  });
+
+  test("窄屏导出挪进「清单」标签，工具条里不再有", async () => {
+    stubMedia(["(max-width: 900px)"]);
+    vi.stubGlobal("fetch", routeFetch());
+    mount();
+    await waitFor(() => screen.getByRole("tablist", { name: "面板" }));
+    expect(screen.queryByRole("group", { name: "导出" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("tab", { name: "清单" }));
+    await waitFor(() => screen.getByRole("group", { name: "导出" }));
+    expect(screen.getByText("H2")).toBeTruthy();
+  });
+
+  test("触屏默认是「拖动」：碰一下画布不会画上一格", async () => {
+    stubMedia(["(pointer: coarse)"]);
+    vi.stubGlobal("fetch", routeFetch());
+    const { container } = mount();
+    await waitFor(() => expect(screen.getByRole("button", { name: "拖动" })
+      .getAttribute("aria-pressed")).toBe("true"));
+
+    await paintOneCell(container);
+    expect(screen.queryByText("有未保存的改动")).toBeNull();
+
+    // 切到画笔就能画
+    await userEvent.click(screen.getByRole("button", { name: "画笔" }));
+    await paintOneCell(container);
+    expect(screen.getByText("有未保存的改动")).toBeTruthy();
+  });
+});

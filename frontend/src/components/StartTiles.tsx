@@ -45,7 +45,9 @@ export function NewTile({ busy, onFile }: { busy?: boolean; onFile: OnFile }) {
         <span className="thumb tile-new-thumb"><BeadPlus /></span>
         <span className="name">{busy ? "正在上传…" : "新图纸"}</span>
         {/* 点卡片就能选图是显然的，不用写；写不显然的：可以拖、可以粘贴 */}
-        <span className="meta">拖进来，或 <span><kbd>Ctrl</kbd>+<kbd>V</kbd> 粘贴</span></span>
+        <span className="meta hint-pointer">拖进来，或 <span><kbd>Ctrl</kbd>+<kbd>V</kbd> 粘贴</span></span>
+        {/* 手机上没有拖拽和 Ctrl+V，换成手机上真能做的 */}
+        <span className="meta hint-touch">从相册选，或拍一张</span>
       </div>
       <input ref={input} type="file" hidden accept={ACCEPTED_TYPES.join(",")}
              onChange={(e) => {
