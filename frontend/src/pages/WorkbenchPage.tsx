@@ -69,6 +69,34 @@ export function WorkbenchPage() {
   const isPhone = useMediaQuery(PHONE_QUERY);
   const isTouch = useMediaQuery(TOUCH_QUERY);
   const [tab, setTab] = useState<PhoneTab>("params");
+  const [fullscreen, setFullscreen] = useState(false);
+
+  /** 全屏预览。页面内铺满是主体（哪都能用）；浏览器支持的话顺便请求系统全屏，
+   *  把地址栏、底栏也收起来。内置浏览器常常不给，失败就只做页面内铺满。 */
+  function toggleFullscreen() {
+    const next = !fullscreen;
+    setFullscreen(next);
+    if (next) setZoom("fit");                       // 进来先看全貌，再自己放大看细节
+    try {
+      if (next) void document.documentElement.requestFullscreen?.().catch(() => {});
+      else if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    } catch {
+      /* 老 WebView 没有 Fullscreen API：页面内铺满照样可用 */
+    }
+  }
+
+  // 系统全屏被返回键/手势退掉时，页面内的铺满也一起退；Esc 同理
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onChange = () => { if (!document.fullscreenElement) setFullscreen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
+    document.addEventListener("fullscreenchange", onChange);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [fullscreen]);
 
   // 触屏默认拖动：画笔当默认的话，想滚一下画布就先画上了一格
   useEffect(() => {
@@ -228,28 +256,32 @@ export function WorkbenchPage() {
                extra={isPhone ? null : exportButtons} />
       <PalettePicker colors={colorMap} working={working} selected={selected}
                      codeOf={(i) => codeMap.get(i) ?? String(i)} onSelect={editor.setColor} />
-      <CanvasBar
-        colorCode={selected === null ? null : (codeMap.get(selected) ?? String(selected))}
-        colorHex={selected === null ? null : (colorMap.get(selected) ?? null)}
-        cellPx={cellPx}
-        mode={typeof zoom === "number" ? "manual" : zoom}
-        showsCodes={cellPx >= SHOW_CODES_MIN}
-        canZoomIn={cellPx < MAX_ZOOM}
-        canZoomOut={cellPx > MIN_ZOOM}
-        onZoomIn={() => setZoom(zoomIn(cellPx))}
-        onZoomOut={() => setZoom(zoomOut(cellPx))}
-        onFit={() => setZoom("fit")}
-        onCodes={() => setZoom("codes")}
-      />
-      <div className={`canvas-wrap${editor.state.tool === "pan" ? " is-pan" : ""}`} ref={wrapRef}>
-        <PatternCanvas grid={editor.state.grid} colors={colorMap} cellPx={cellPx}
-                       codeOf={(i) => codeMap.get(i) ?? String(i)}
-                       showCodes={cellPx >= SHOW_CODES_MIN}
-                       highlight={highlight}
-                       protectedCells={editor.state.protectedCells}
-                       onCellDown={(r, c) => editor.applyAt(r, c)}
-                       onCellEnter={(r, c) => editor.applyAt(r, c)}
-                       onPointerUp={() => {}} />
+      <div className={`canvas-stage${fullscreen ? " is-full" : ""}`}>
+        <CanvasBar
+          fullscreen={fullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          colorCode={selected === null ? null : (codeMap.get(selected) ?? String(selected))}
+          colorHex={selected === null ? null : (colorMap.get(selected) ?? null)}
+          cellPx={cellPx}
+          mode={typeof zoom === "number" ? "manual" : zoom}
+          showsCodes={cellPx >= SHOW_CODES_MIN}
+          canZoomIn={cellPx < MAX_ZOOM}
+          canZoomOut={cellPx > MIN_ZOOM}
+          onZoomIn={() => setZoom(zoomIn(cellPx))}
+          onZoomOut={() => setZoom(zoomOut(cellPx))}
+          onFit={() => setZoom("fit")}
+          onCodes={() => setZoom("codes")}
+        />
+        <div className={`canvas-wrap${editor.state.tool === "pan" ? " is-pan" : ""}`} ref={wrapRef}>
+          <PatternCanvas grid={editor.state.grid} colors={colorMap} cellPx={cellPx}
+                         codeOf={(i) => codeMap.get(i) ?? String(i)}
+                         showCodes={cellPx >= SHOW_CODES_MIN}
+                         highlight={highlight}
+                         protectedCells={editor.state.protectedCells}
+                         onCellDown={(r, c) => editor.applyAt(r, c)}
+                         onCellEnter={(r, c) => editor.applyAt(r, c)}
+                         onPointerUp={() => {}} />
+        </div>
       </div>
     </div>
   );
