@@ -106,7 +106,7 @@ describe("路由守卫", () => {
     }));
     const { App } = await import("../src/App");
     render(<MemoryRouter initialEntries={["/login"]}><App /></MemoryRouter>);
-    await waitFor(() => expect(screen.getByText("我的项目")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("把图片拖到这里")).toBeTruthy());
     expect(screen.queryByLabelText("邀请码")).toBeNull();
     expect(screen.queryByRole("button", { name: /没有账号/ })).toBeNull();
   });

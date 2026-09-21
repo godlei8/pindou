@@ -80,6 +80,16 @@ def add_feedback(pattern_id: uuid.UUID, body: FeedbackIn,
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/{pattern_id}/thumb")
+def thumb(pattern_id: uuid.UUID, user: User = Depends(current_user),
+          db: Session = Depends(get_db)) -> Response:
+    pat = _owned_pattern(db, user, pattern_id)
+    # 图纸不可变（编辑会产生新版本），所以同一个 id 的缩略图永远一样，可以放心长缓存。
+    # private：它挂在登录态后面，不能让共享缓存存。
+    return Response(psvc.thumb_png(pat, _palette_of(pat)), media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+
 @router.get("/{pattern_id}/export")
 def export(pattern_id: uuid.UUID, format: str = Query("png"),
            cell_px: int = Query(28, ge=4, le=120), bead_mm: float = Query(5.0, gt=0, le=20),

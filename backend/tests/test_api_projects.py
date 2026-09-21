@@ -166,3 +166,24 @@ def test_brief_marks_which_versions_came_from_ai(auth_client, db):
     briefs = auth_client.get(f"/api/projects/{pid}").json()["patterns"]
     assert briefs and all(b["ai_render_id"] is None for b in briefs)
     assert {b["origin"] for b in briefs} == {"generated"}
+
+
+def test_rename_project(auth_client):
+    pid = _upload(auth_client, "avatar.jpg").json()["id"]
+    r = auth_client.patch(f"/api/projects/{pid}", json={"name": "  小熊猫  "})
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "小熊猫"          # 首尾空白去掉
+    assert auth_client.get(f"/api/projects/{pid}").json()["name"] == "小熊猫"
+
+
+def test_rename_rejects_blank(auth_client):
+    pid = _upload(auth_client).json()["id"]
+    assert auth_client.patch(f"/api/projects/{pid}", json={"name": "   "}).status_code == 422
+
+
+def test_cannot_rename_other_users_project(auth_client, client, invite_other):
+    pid = _upload(auth_client).json()["id"]
+    client.cookies.clear()
+    client.post("/api/auth/register", json={"username": "intruder3", "password": "pw12345678",
+                                            "invite_code": "OTHER"})
+    assert client.patch(f"/api/projects/{pid}", json={"name": "偷改"}).status_code == 404

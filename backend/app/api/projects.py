@@ -11,7 +11,8 @@ from app.api.deps import current_user
 from app.core import pipeline
 from app.db import SessionLocal, get_db
 from app.models import AiRender, Pattern, Project, StylePreset, User
-from app.schemas import GenerateIn, JobOut, PatternParamsIn, ProjectOut, SizeSuggestion
+from app.schemas import (GenerateIn, JobOut, PatternParamsIn, ProjectOut, ProjectRenameIn,
+                         SizeSuggestion)
 from app.services import jobs as jsvc
 from app.services import patterns as psvc
 from app.services import quota
@@ -63,6 +64,16 @@ def list_projects(user: User = Depends(current_user), db: Session = Depends(get_
 def get_project(project_id: uuid.UUID, user: User = Depends(current_user),
                 db: Session = Depends(get_db)) -> dict:
     return _project_out(db, _owned_project(db, user, project_id))
+
+
+@router.patch("/projects/{project_id}", response_model=ProjectOut)
+def rename_project(project_id: uuid.UUID, body: ProjectRenameIn,
+                   user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    """上传时不再问名字（出结果前不该问任何问题），名字默认取文件名，事后在这里改。"""
+    proj = _owned_project(db, user, project_id)
+    proj.name = body.name
+    db.commit()
+    return _project_out(db, proj)
 
 
 @router.get("/projects/{project_id}/source")

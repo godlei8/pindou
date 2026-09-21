@@ -1,14 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import type { FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { ApiError, api } from "../api/client";
 import type { Project } from "../api/types";
+import { DropZone } from "../components/DropZone";
+import { ProjectCard } from "../components/ProjectCard";
+import { checkImage, useImageIntake } from "../hooks/useImageIntake";
+import type { IntakeSource } from "../hooks/useImageIntake";
+
+/** 上传前不再问名字（出结果前不该问任何问题），按来源给个能认出来的默认名，事后可改。 */
+function defaultName(file: File, source: IntakeSource, label?: string): string {
+  if (source === "sample" && label) return `示例 · ${label}`;
+  if (source === "paste") {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `截图 ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  // 去掉扩展名：avatar.jpg → avatar
+  return file.name.replace(/\.[^.]+$/, "") || "未命名";
+}
 
 export function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [name, setName] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const navigate = useNavigate();
+  /** null = 还在加载。加载完才决定投图区大还是小，免得老用户先看到一闪大区再缩回去。 */
+  const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -17,65 +32,59 @@ export function ProjectsPage() {
       setProjects(await api.listProjects());
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : String(e));
+      setProjects([]);
     }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
 
-  async function upload(e: FormEvent) {
-    e.preventDefault();
-    if (!file) return;
+  /** 投图 = 建项目 + 立刻进工作台。工作台自己会出第一张图纸，中间不停。 */
+  const start = useCallback(async (file: File, source: IntakeSource, label?: string) => {
+    const bad = checkImage(file);
+    if (bad) { setError(bad); return; }
     setError("");
     setBusy(true);
     try {
-      await api.createProject(name || file.name, file);
-      setName("");
-      setFile(null);
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.detail : String(err));
-    } finally {
+      const proj = await api.createProject(defaultName(file, source, label), file);
+      navigate(`/p/${proj.id}`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : String(e));
       setBusy(false);
     }
+  }, [navigate]);
+
+  const dragging = useImageIntake(start, !busy && projects !== null);
+
+  async function rename(id: string, name: string) {
+    const updated = await api.renameProject(id, name);
+    setProjects((ps) => (ps ?? []).map((p) => (p.id === id ? updated : p)));
   }
+
+  if (projects === null) return <main className="projects"><p className="loading">加载中…</p></main>;
+
+  const hasProjects = projects.length > 0;
 
   return (
     <main className="projects">
-      <h1>我的项目</h1>
+      <h1 className="sr-only">拼豆图纸生成</h1>
 
-      <form onSubmit={upload} className="upload">
-        <div>
-          <label htmlFor="file">图片</label>
-          <input id="file" type="file" accept="image/png,image/jpeg,image/webp"
-                 onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        </div>
-        <div>
-          <label htmlFor="name">项目名</label>
-          <input id="name" value={name} onChange={(e) => setName(e.target.value)}
-                 placeholder="不填就用文件名" />
-        </div>
-        <button type="submit" className="primary" disabled={!file || busy}>上传</button>
-      </form>
-
+      <DropZone compact={hasProjects} busy={busy} onFile={start} />
       {error && <p role="alert" className="error">{error}</p>}
 
-      {projects.length === 0 ? (
-        <p className="empty">还没有项目。上传一张图片开始吧。</p>
-      ) : (
-        <ul className="project-list">
-          {projects.map((p) => {
-            const latest = p.patterns[0];
-            return (
-              <li key={p.id}>
-                <Link to={`/p/${p.id}`}>
-                  <strong>{p.name}</strong>
-                  <span>{p.patterns.length} 个版本</span>
-                  {latest?.score != null && <span>可拼性 {latest.score}</span>}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+      {hasProjects && (
+        <section className="recent">
+          <h2>最近的图纸</h2>
+          <ul className="project-grid">
+            {projects.map((p) => <ProjectCard key={p.id} project={p} onRename={rename} />)}
+          </ul>
+        </section>
+      )}
+
+      {/* 整页都能投，拖进来时给个明确的落点提示 */}
+      {dragging && (
+        <div className="drop-overlay" aria-hidden="true">
+          <p>松手就开始出图</p>
+        </div>
       )}
     </main>
   );

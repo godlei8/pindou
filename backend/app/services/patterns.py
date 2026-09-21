@@ -206,6 +206,23 @@ def export_png(pattern: Pattern, palette: CorePalette, cell_px: int = 28,
     return buf.getvalue()
 
 
+def thumb_png(pattern: Pattern, palette: CorePalette) -> bytes:
+    """每格 1 像素的缩略图，空格透明。给项目列表认图用。
+
+    不复用 export_png：那个会画格线，缩到 4px/格时格线占掉四分之一面积，整张图发灰。
+    1px/格的原图只有一两 KB，交给浏览器用 image-rendering: pixelated 放大，反而最清楚。
+    """
+    grid = grid_from_db(pattern.grid)
+    h, w = grid.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    filled = grid != EMPTY
+    rgba[filled, :3] = palette.rgb[grid[filled]]
+    rgba[filled, 3] = 255
+    buf = io.BytesIO()
+    Image.fromarray(rgba, "RGBA").save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
 def export_pdf(pattern: Pattern, palette: CorePalette, bead_mm: float = 5.0) -> bytes:
     return core_pdf.render_pdf(grid_from_db(pattern.grid), palette,
                                core_pdf.PdfOptions(bead_mm=bead_mm))

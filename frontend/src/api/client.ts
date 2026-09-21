@@ -86,6 +86,12 @@ export const api = {
     // 不要手动设 Content-Type：那会丢掉 multipart 的 boundary
     return request<Project>("/projects", { method: "POST", body: fd });
   },
+  renameProject: (id: string, name: string) =>
+    request<Project>(`/projects/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }),
   sourceUrl: (id: string) => `${BASE}/projects/${id}/source`,
   aiRenderUrl: (projectId: string, renderId: string) =>
     `${BASE}/projects/${projectId}/ai-renders/${renderId}/image`,
@@ -105,6 +111,8 @@ export const api = {
   // patterns
   getJob: (id: number) => request<Job>(`/jobs/${id}`),
   getPattern: (id: string) => request<Pattern>(`/patterns/${id}`),
+  /** 每格 1 像素的缩略图，要配 image-rendering: pixelated 放大。 */
+  thumbUrl: (id: string) => `${BASE}/patterns/${id}/thumb`,
   applyPatch: (id: string, issue_index: number) =>
     postJson<Pattern>(`/patterns/${id}/apply-patch`, { issue_index }),
   applyEdits: (id: string, edits: EditCell[], protected_cells?: [number, number][]) =>

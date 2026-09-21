@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class _Base(BaseModel):
@@ -41,6 +41,18 @@ class PatternBrief(_Base):
     created_at: datetime
     score: float | None = None
     n_colors: int = 0
+
+
+class ProjectRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("名字不能是空白")
+        return v
 
 
 class ProjectOut(_Base):

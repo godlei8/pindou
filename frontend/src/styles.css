@@ -315,53 +315,183 @@ main { padding: var(--sp-6) var(--sp-4); }
 .toolbar { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 .sizes { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 
-/* ══ 项目页 ═════════════════════════════════════════════════ */
+/* ══ 首页：投图区 + 最近的图纸 ═════════════════════════════
+   调研见 docs/research/2026-09-21-entry-flow.md：
+   投图 = 建项目 + 立刻进工作台；三种投法（点选/拖拽/粘贴）；没图给示例；
+   回来的人靠缩略图认图。 */
 
-.projects { max-width: 880px; margin: 0 auto; }
-
-.upload {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: var(--sp-3);
-  background: var(--surface);
-  border: var(--bd-2) solid var(--ink);
-  box-shadow: 4px 4px 0 var(--ink);
-  padding: var(--sp-4);
-  margin-bottom: var(--sp-6);
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
-.upload > div { display: grid; }
 
-.project-list { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--sp-3); }
-.project-list a {
+/* 不能写 max-width + margin:auto：main 是 flex 子项，横向 auto 外边距会让它收缩到
+   内容宽度，滚动条也跟着缩到页面中间。改成满宽容器、用内边距把内容挤到中间 960px。 */
+.projects {
+  padding-inline: max(var(--sp-4), calc((100% - 960px) / 2));
+}
+
+/* —— 投图区：它本身就是一块底板。「把图放到板上」正是这里的语义。 —— */
+.dropzone { margin-bottom: var(--sp-8); }
+
+.dropzone-target {
   display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: var(--sp-4);
-  align-items: center;
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--surface);
-  border: var(--bd) solid var(--ink);
-  box-shadow: 3px 3px 0 var(--ink);
-  text-decoration: none;
-  transition: transform 90ms ease, box-shadow 90ms ease, background 90ms ease;
-}
-.project-list a:hover {
-  background: var(--warn);
-  transform: translate(3px, 3px);
-  box-shadow: 0 0 0 var(--ink);
-}
-.project-list a:focus-visible { box-shadow: 3px 3px 0 var(--ink), var(--focus); }
-.project-list span { color: var(--ink-mute); }
-
-/* 空状态：露出底板，提示"这里可以插豆子" */
-.projects > .empty:last-child {
-  padding: var(--sp-8);
+  place-content: center;
+  justify-items: center;
+  gap: var(--sp-3);
+  min-height: 320px;
+  padding: var(--sp-8) var(--sp-6);
   text-align: center;
-  border: var(--bd-2) dashed var(--peg);
+  cursor: pointer;
   background-color: var(--surface);
   background-image: radial-gradient(circle at center, var(--peg) 0 3px, transparent 3px);
   background-size: var(--pitch) var(--pitch);
   background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2);
+  border: var(--bd-2) solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  transition: background-color 90ms ease;
+}
+.dropzone-target:hover { background-color: color-mix(in srgb, var(--warn) 22%, var(--surface)); }
+.dropzone-target:focus-visible { outline: none; box-shadow: 6px 6px 0 var(--ink), var(--focus); }
+
+.dropzone-main {
+  margin: 0;
+  font-size: 24px;
+  line-height: 32px;
+  /* 文字压在点阵上要读得清，给一块实底 */
+  background: var(--surface);
+  padding: 0 var(--sp-2);
+}
+.dropzone-sub, .dropzone-hint {
+  margin: 0;
+  background: var(--surface);
+  padding: 0 var(--sp-2);
+}
+.dropzone-hint { color: var(--ink-mute); }
+.dropzone-pick { margin: 0 var(--sp-1); pointer-events: none; }
+
+kbd {
+  display: inline-block;
+  padding: 0 var(--sp-1);
+  border: var(--bd) solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  background: var(--surface);
+  font: inherit;
+  margin: 0 2px;
+}
+
+.dropzone.is-busy .dropzone-target { cursor: progress; }
+.dropzone.is-busy .dropzone-target:hover { background-color: var(--surface); }
+
+/* 已有项目：收成一条，把位置让给缩略图 */
+.dropzone.is-compact { margin-bottom: var(--sp-6); }
+.dropzone.is-compact .dropzone-target {
+  min-height: 0;
+  padding: var(--sp-4) var(--sp-6);
+  grid-auto-flow: column;
+  gap: var(--sp-4);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.dropzone.is-compact .dropzone-main { font-size: 12px; line-height: 16px; }
+
+/* —— 示例图 —— */
+.samples { margin-top: var(--sp-6); text-align: center; }
+.samples > p { margin: 0 0 var(--sp-3); color: var(--ink-mute); }
+.samples ul {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; justify-content: center; gap: var(--sp-4); flex-wrap: wrap;
+}
+.samples button {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  background: var(--surface);
+}
+.samples img {
+  width: 96px; height: 96px;
+  display: block;
+  border: var(--bd) solid var(--ink);
+}
+
+/* —— 最近的图纸 —— */
+.recent > h2 { color: var(--ink); margin-bottom: var(--sp-3); }
+
+.project-grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--sp-4);
+}
+
+.project-card { position: relative; }
+
+.card-body {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  text-decoration: none;
+  color: var(--ink);
+  transition: transform 90ms ease, box-shadow 90ms ease, background 90ms ease;
+}
+a.card-body:hover { background: var(--warn); transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+a.card-body:focus-visible { outline: none; box-shadow: 4px 4px 0 var(--ink), var(--focus); }
+
+/* 缩略图：底下垫透明棋盘格（空格是透明的），每格 1 像素的图纸按 pixelated 放大 */
+.thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  margin-bottom: var(--sp-2);
+  background: repeating-conic-gradient(#EFEFF6 0 25%, #FFFFFF 0 50%) 50% / 12px 12px;
+  border: var(--bd) solid var(--ink);
+  overflow: hidden;
+}
+.thumb img { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; }
+.thumb img.is-pattern { image-rendering: pixelated; }
+
+.card-body .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 40px; }
+.card-body .meta { color: var(--ink-mute); }
+.card-body input { width: 100%; }
+.card-error { color: var(--accent); }
+
+/* 改名按钮浮在卡片右下角的名字那一行，但在链接外面 */
+.card-rename {
+  position: absolute;
+  right: var(--sp-3);
+  bottom: calc(var(--sp-3) + 18px);
+  padding: 0 var(--sp-1);
+  border-width: var(--bd);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.card-rename:hover:not(:disabled) { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--ink); }
+
+/* —— 整页放置提示 —— */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  pointer-events: none;           /* 让 drop 事件照常落到页面上 */
+  background-color: color-mix(in srgb, var(--board) 85%, transparent);
+  background-image: radial-gradient(circle at center, var(--ink) 0 3px, transparent 3px);
+  background-size: var(--pitch) var(--pitch);
+  background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2);
+  outline: var(--bd-2) dashed var(--ink);
+  outline-offset: calc(-1 * var(--sp-4));
+}
+.drop-overlay p {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-6);
+  font-size: 24px;
+  line-height: 32px;
+  background: var(--surface);
+  border: var(--bd-2) solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
 }
 
 /* ══ 工作台 ═════════════════════════════════════════════════ */
@@ -667,7 +797,7 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
     animation-duration: 1ms !important;
   }
   .sprite.is-fused .bead:not(.is-empty) { transform: none; }
-  button:hover, .btn:hover, .project-list a:hover, .swatch:hover { transform: none; }
+  button:hover, .btn:hover, a.card-body:hover, .swatch:hover { transform: none; }
 }
 
 /* ══ AI 重绘 ════════════════════════════════════════════════ */

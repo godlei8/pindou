@@ -105,3 +105,41 @@ def test_cannot_touch_other_users_pattern(auth_client, client, pattern, invite_o
     assert client.get(f"/api/patterns/{pattern['id']}").status_code == 404
     assert client.post(f"/api/patterns/{pattern['id']}/edits",
                        json={"edits": [{"cell": [0, 0], "to": 0}]}).status_code == 404
+
+
+
+def test_thumb_is_one_pixel_per_cell(auth_client, pattern):
+    import io
+    from PIL import Image
+    r = auth_client.get(f"/api/patterns/{pattern['id']}/thumb")
+    assert r.status_code == 200
+    # 图纸不可变，缩略图可以永久缓存；但它在登录态后面，不能进共享缓存
+    assert "immutable" in r.headers["cache-control"]
+    assert "private" in r.headers["cache-control"]
+    img = Image.open(io.BytesIO(r.content))
+    assert img.size == (len(pattern["grid"][0]), len(pattern["grid"]))
+    assert img.mode == "RGBA"
+
+
+def test_thumb_is_transparent_where_cells_are_empty(auth_client):
+    """透明底的图，空格在缩略图里必须是透明的，不能被填成黑或白。"""
+    import io
+    import numpy as np
+    from PIL import Image
+    pid = _project(auth_client, "thin_diagonal.png")
+    pat = auth_client.post(f"/api/projects/{pid}/patterns",
+                           json={"params": {"grid_long_side": 24}}).json()
+    grid = np.array([[-1 if v is None else v for v in row] for row in pat["grid"]])
+    assert (grid == -1).any(), "样本应当有空格，否则这个测试什么也没测"
+
+    a = np.asarray(Image.open(io.BytesIO(
+        auth_client.get(f"/api/patterns/{pat['id']}/thumb").content)))
+    assert (a[grid == -1, 3] == 0).all()
+    assert (a[grid != -1, 3] == 255).all()
+
+
+def test_cannot_read_other_users_thumb(auth_client, client, pattern, invite_other):
+    client.cookies.clear()
+    client.post("/api/auth/register", json={"username": "peeker", "password": "pw12345678",
+                                            "invite_code": "OTHER"})
+    assert client.get(f"/api/patterns/{pattern['id']}/thumb").status_code == 404
