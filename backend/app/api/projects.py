@@ -152,5 +152,10 @@ def recompute(project_id: uuid.UUID, body: PatternParamsIn,
         if ai_render is None or ai_render.project_id != proj.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "AI 重绘结果不存在")
     pat = psvc.generate(db, proj, params, ai_render)
-    db.commit()
-    return pattern_out(pat, load_core_palette(params.palette_id))
+    db.flush()                      # 先拿到新版本的 id，再决定删不删旧的
+    replaced = (psvc.discard_draft(db, proj, body.replaces, keep=pat.id)
+                if body.replaces is not None else None)
+    db.commit()                     # 新增和删除在同一个事务里：出图失败就什么都不删
+    out = pattern_out(pat, load_core_palette(params.palette_id))
+    out["replaced_id"] = replaced   # 让前端知道要不要从版本列表里拿掉那一行
+    return out

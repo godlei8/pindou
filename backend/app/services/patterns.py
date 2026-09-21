@@ -7,6 +7,7 @@ from dataclasses import fields as dc_fields
 
 import numpy as np
 from PIL import Image, UnidentifiedImageError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -18,7 +19,7 @@ from app.core.palette import Palette as CorePalette
 from app.core.patches import apply_patch, attach_patches
 from app.core.split import Board
 from app.core.types import EMPTY, Issue, Params
-from app.models import AiRender, Pattern, Project
+from app.models import AiRender, Feedback, Pattern, Project
 from app.services.palettes import load_core_palette
 from app.services.storage import get_storage
 
@@ -205,6 +206,34 @@ def export_png(pattern: Pattern, palette: CorePalette, cell_px: int = 28,
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def discard_draft(db: Session, project: Project, pattern_id: uuid.UUID,
+                  keep: uuid.UUID) -> uuid.UUID | None:
+    """连续调参时，把被新结果取代的那个过渡版本删掉。删了返回它的 id，没删返回 None。
+
+    拖一下 λ 停一下就存一版，调一轮参数版本列表能多出七八个几乎一样的——
+    所以一段连续调参只留最后一版。但只删**确实没人用过**的：
+
+    - 同一项目、不是刚生成的这一版
+    - origin == generated：手改、修复出来的版本是用户的劳动，不能动
+    - 没有子版本：parent_id 是 SET NULL，删了会让子版本变成孤儿
+    - 没有实拼反馈：feedback 是 CASCADE，删了会把用户的反馈一起删掉，
+      而那是标定可拼性评分唯一的真实数据
+
+    任何一条不满足就什么都不删——宁可多留一版，也不能误删。
+    """
+    if pattern_id == keep:
+        return None
+    old = db.get(Pattern, pattern_id)
+    if old is None or old.project_id != project.id or old.origin != "generated":
+        return None
+    has_child = db.scalar(select(Pattern.id).where(Pattern.parent_id == old.id).limit(1))
+    has_feedback = db.scalar(select(Feedback.id).where(Feedback.pattern_id == old.id).limit(1))
+    if has_child is not None or has_feedback is not None:
+        return None
+    db.delete(old)
+    return old.id
 
 
 def thumb_png(pattern: Pattern, palette: CorePalette) -> bytes:

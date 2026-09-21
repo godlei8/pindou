@@ -41,9 +41,20 @@ export function usePattern(projectId: string) {
 
   const fail = (e: unknown) => setError(e instanceof ApiError ? e.detail : String(e));
 
+  /** 这段连续调参里上一次重算出来的版本。下一次重算请后端用新结果替换它——
+   *  拖一下滑块停一下就存一版，调一轮参数版本列表能多出七八个几乎一样的。
+   *  任何别的动作（载入、切版本、手改、修复、AI）都会经过 adopt 把它清空：
+   *  那之后的第一次调参必须新增一版，不能把用户刚选中、刚做出来的版本替换掉。
+   *  （后端还会再复核一遍能不能删，见 patterns.discard_draft。） */
+  const replaceable = useRef<string | null>(null);
+  /** 重算串行化：有一个在算时只记下最新的参数，中间的直接跳过。 */
+  const running = useRef(false);
+  const pending = useRef<PatternParams | null>(null);
+
   const adopt = useCallback((p: Pattern) => {
     setPattern(p);
     aiRenderId.current = p.ai_render_id;
+    replaceable.current = null;
     // 乐观维护版本列表：新版本的信息这里全都有，不必为此再请求一次项目
     setVersions((vs) => vs.some((v) => v.id === p.id) ? vs : [{
       id: p.id, origin: p.origin, parent_id: p.parent_id,
@@ -54,14 +65,31 @@ export function usePattern(projectId: string) {
   }, []);
 
   const recompute = useCallback(async (next: PatternParams) => {
+    // 已经有一个在算：只记下最新的参数，等它回来再算这一个，中间的全跳过。
+    // 不串行的话，慢的请求后回来会用旧参数的结果盖掉新的；两个请求还会争着
+    // 替换同一个过渡版本，其中一个扑空，漏下一版删不掉。
+    if (running.current) { pending.current = next; return; }
+    running.current = true;
     setBusy(true);
     setError("");
     try {
-      // 带上 aiRenderId：否则调了个 λ 就悄悄退回原图，用户的 AI 额度白花了
-      adopt(await api.recompute(projectId, next, aiRenderId.current));
+      let todo: PatternParams | null = next;
+      while (todo) {
+        pending.current = null;
+        // 带上 aiRenderId：否则调了个 λ 就悄悄退回原图，用户的 AI 额度白花了
+        const res = await api.recompute(projectId, todo, aiRenderId.current, replaceable.current);
+        adopt(res);
+        if (res.replaced_id) {
+          const gone = res.replaced_id;
+          setVersions((vs) => vs.filter((v) => v.id !== gone));
+        }
+        replaceable.current = res.id;     // 下一次调参替换的就是它
+        todo = pending.current;
+      }
     } catch (e) {
       fail(e);
     } finally {
+      running.current = false;
       setBusy(false);
     }
   }, [projectId, adopt]);

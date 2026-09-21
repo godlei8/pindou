@@ -74,6 +74,8 @@ export interface Pattern {
   /** 这张图纸是基于哪张 AI 重绘图算的。null = 基于原图。
    *  改参数重算时必须带上它，否则会悄悄退回原图。 */
   ai_render_id: string | null;
+  /** 只有重算接口会带：这次顺手替换掉（删除）的过渡版本。 */
+  replaced_id?: string | null;
   params: PatternParams;
   grid: Grid;
   color_stats: Record<string, number>;

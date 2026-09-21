@@ -73,6 +73,9 @@ class PatternParamsIn(BaseModel):
     source: str = "original"
     ai_render_id: uuid.UUID | None = None
     params: dict = Field(default_factory=dict)
+    #: 连续调参时，上一版如果只是个过渡结果，就用这一版替换它而不是往上叠。
+    #: 只是请求——后端会复核能不能删（见 patterns.discard_draft）。
+    replaces: uuid.UUID | None = None
 
 
 class PatternOut(_Base):

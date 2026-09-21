@@ -101,11 +101,15 @@ export const api = {
     use_ai: boolean; style_preset_id?: string | null; provider?: string | null;
     params: Partial<PatternParams>;
   }) => postJson<Job>(`/projects/${id}/generate`, body),
-  recompute: (id: string, params: Partial<PatternParams>, aiRenderId?: string | null) =>
+  /** replaces：这段连续调参里上一次算出来的过渡版本，请后端用新结果替换它。
+   *  后端会复核能不能删；真删了会在响应的 replaced_id 里告诉你。 */
+  recompute: (id: string, params: Partial<PatternParams>, aiRenderId?: string | null,
+              replaces?: string | null) =>
     postJson<Pattern>(`/projects/${id}/patterns`, {
       source: aiRenderId ? "ai" : "original",
       ai_render_id: aiRenderId ?? null,
       params,
+      replaces: replaces ?? null,
     }),
 
   // patterns

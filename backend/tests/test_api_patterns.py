@@ -143,3 +143,87 @@ def test_cannot_read_other_users_thumb(auth_client, client, pattern, invite_othe
     client.post("/api/auth/register", json={"username": "peeker", "password": "pw12345678",
                                             "invite_code": "OTHER"})
     assert client.get(f"/api/patterns/{pattern['id']}/thumb").status_code == 404
+
+
+# ---- 连续调参只留最后一版 ---------------------------------------------------
+
+def _recompute(auth_client, pid, replaces=None, smoothness=2.0):
+    body = {"params": {"grid_long_side": 20, "max_colors": 5, "smoothness": smoothness}}
+    if replaces:
+        body["replaces"] = replaces
+    r = auth_client.post(f"/api/projects/{pid}/patterns", json=body)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _version_ids(auth_client, pid):
+    return [p["id"] for p in auth_client.get(f"/api/projects/{pid}").json()["patterns"]]
+
+
+def test_consecutive_tweaks_replace_the_previous_draft(auth_client):
+    pid = _project(auth_client)
+    a = _recompute(auth_client, pid, smoothness=3.5)
+    b = _recompute(auth_client, pid, replaces=a["id"], smoothness=2.5)
+    c = _recompute(auth_client, pid, replaces=b["id"], smoothness=1.5)
+
+    assert b["replaced_id"] == a["id"] and c["replaced_id"] == b["id"]
+    assert _version_ids(auth_client, pid) == [c["id"]]      # 拖三下滑块，只剩一版
+
+
+def test_without_replaces_nothing_is_deleted(auth_client):
+    pid = _project(auth_client)
+    a = _recompute(auth_client, pid)
+    b = _recompute(auth_client, pid)
+    assert b["replaced_id"] is None
+    assert set(_version_ids(auth_client, pid)) == {a["id"], b["id"]}
+
+
+def test_never_discards_a_version_that_has_children(auth_client):
+    """手改会以它为父版本；parent_id 是 SET NULL，删了会让手改版变成孤儿。"""
+    pid = _project(auth_client)
+    a = _recompute(auth_client, pid)
+    edited = auth_client.post(f"/api/patterns/{a['id']}/edits",
+                              json={"edits": [{"cell": [0, 0], "to": None}]}).json()
+    b = _recompute(auth_client, pid, replaces=a["id"])
+    assert b["replaced_id"] is None
+    assert {a["id"], edited["id"], b["id"]} <= set(_version_ids(auth_client, pid))
+
+
+def test_never_discards_an_edited_version(auth_client):
+    """手改、修复出来的是用户的劳动。"""
+    pid = _project(auth_client)
+    a = _recompute(auth_client, pid)
+    edited = auth_client.post(f"/api/patterns/{a['id']}/edits",
+                              json={"edits": [{"cell": [0, 0], "to": None}]}).json()
+    b = _recompute(auth_client, pid, replaces=edited["id"])
+    assert b["replaced_id"] is None
+    assert edited["id"] in _version_ids(auth_client, pid)
+
+
+def test_never_discards_a_version_with_feedback(auth_client, db):
+    """feedback 是 CASCADE：删了版本会把用户的实拼反馈一起删掉。"""
+    from app.models import Feedback
+    pid = _project(auth_client)
+    a = _recompute(auth_client, pid)
+    auth_client.post(f"/api/patterns/{a['id']}/feedback", json={"kind": "断裂", "cells": []})
+    b = _recompute(auth_client, pid, replaces=a["id"])
+    assert b["replaced_id"] is None
+    assert a["id"] in _version_ids(auth_client, pid)
+    assert db.query(Feedback).count() == 1
+
+
+def test_cannot_discard_a_version_from_another_project(auth_client):
+    p1, p2 = _project(auth_client), _project(auth_client)
+    a = _recompute(auth_client, p1)
+    b = _recompute(auth_client, p2, replaces=a["id"])
+    assert b["replaced_id"] is None
+    assert a["id"] in _version_ids(auth_client, p1)
+
+
+def test_replacing_something_already_gone_is_harmless(auth_client):
+    """两个请求撞车时第二个要替换的那版可能已经被删了——照常出图就行。"""
+    import uuid
+    pid = _project(auth_client)
+    b = _recompute(auth_client, pid, replaces=str(uuid.uuid4()))
+    assert b["replaced_id"] is None
+    assert _version_ids(auth_client, pid) == [b["id"]]
