@@ -227,6 +227,7 @@ export function WorkbenchPage() {
   const params = (
     <ParamPanel params={p.params} sizes={p.sizes} disabled={p.busy} onChange={changeParams}
                 faceHint={p.pattern?.face_hint ?? null}
+                flatArt={p.pattern?.fidelity?.method === "flat"}
                 backgroundNotFound={!!p.pattern?.params.remove_background
                   && p.pattern.grid.every((row) => row.every((v) => v !== null))}
                 current={p.pattern && p.pattern.grid.length > 0

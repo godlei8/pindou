@@ -25,7 +25,7 @@ from app.services.storage import get_storage
 
 _LIMITS = {
     "grid_long_side": (8, 200),
-    "max_colors": (2, 64),
+    "max_colors": (0, 64),          # 0 = 不限
     "smoothness": (0.0, 50.0),
     "small_color_threshold": (0, 1000),
     "background_tolerance": (0.0, 1.0),
@@ -50,6 +50,8 @@ def params_from_dict(d: dict) -> Params:
             v = clean[key]
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not (lo <= v <= hi):
                 raise PatternError(f"参数 {key} 超出允许范围 [{lo}, {hi}]：{v!r}")
+    if clean.get("max_colors") == 1:
+        raise PatternError("参数 max_colors 只能是 0（不限）或 2–64")
     if "remove_background" in clean and not isinstance(clean["remove_background"], bool):
         raise PatternError(f"参数 remove_background 必须是 true / false：{clean['remove_background']!r}")
     if clean.get("protected_cells"):

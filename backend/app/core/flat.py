@@ -272,7 +272,7 @@ def ndimage_dilate(mask: np.ndarray, r: int) -> np.ndarray:
 
 
 def downsample_inks(rgba: np.ndarray, rows: int, cols: int, inks: np.ndarray,
-                    coverage: np.ndarray) -> CellImage:
+                    coverage: np.ndarray | None = None) -> CellImage:
     """平涂取色：初稿"每格谁多用谁"，然后直接按还原度逐格优化（core/refine.py）。"""
     from app.core.color import delta_e_2000, srgb_to_lab
     from app.core.refine import Objective, refine, thin_first_init
@@ -280,15 +280,19 @@ def downsample_inks(rgba: np.ndarray, rows: int, cols: int, inks: np.ndarray,
     k = len(inks)
     src = label_source(rgba, rows, cols, inks)
     votes = (src.reshape(rows, PX, cols, PX)[..., None] == np.arange(k + 1)).sum((1, 3))
+    if coverage is None:
+        coverage = (1.0 - votes[..., k] / float(PX * PX)).astype(np.float32)
     init = thin_first_init(votes, src, k, PX)
 
     lab = srgb_to_lab(inks.astype(np.float64))
     cost = np.full((k + 1, k + 1), SHAPE_PENALTY)
     cost[:k, :k] = delta_e_2000(lab[:, None, :], lab[None, :, :])
     cost[k, k] = 0.0
-    out = refine(Objective(src, k, cost, PX), init)
+    shared: dict = {}
+    out = refine(Objective(src, k, cost, PX, shared), init)
 
     mask = out != k
     rgb = inks[np.where(mask, out, 0)].astype(np.float32)
     used = np.unique(out[mask])
-    return CellImage(rgb=rgb, coverage=coverage, mask=mask, inks=inks[used])
+    return CellImage(rgb=rgb, coverage=coverage, mask=mask, inks=inks[used],
+                     flat_cache={"src": src, "k": k, "all_inks": inks, "shared": shared})

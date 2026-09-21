@@ -11,7 +11,9 @@ EMPTY = -1  # 网格空格
 @dataclass
 class Params:
     grid_long_side: int = 58          # 长边格数
-    max_colors: int = 24
+    #: 最多用几种颜色。0 = 不限（默认）：还原度优先，颜色丰富的照片多给颜色能明显更像
+    #: （测试图 24 色 84.0 → 不限 85.4）。想少买几种豆的用户可以自己设上限。
+    max_colors: int = 0
     smoothness: float = 2.0           # graph cut λ；0 = 纯最近色。默认值由 scripts/benchmark.py
                                       # 在 10 张黄金样本上比较 λ∈{0,1,2,3} 选出：2.0 在每张图上
                                       # 的 confetti 都不劣于 1.0 且不损失色数；3.0 开始吃掉色号。

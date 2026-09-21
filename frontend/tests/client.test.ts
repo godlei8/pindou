@@ -17,7 +17,7 @@ describe("api client", () => {
 
   test("默认参数与后端 Params 对齐", () => {
     expect(DEFAULT_PARAMS.grid_long_side).toBe(58);
-    expect(DEFAULT_PARAMS.max_colors).toBe(24);
+    expect(DEFAULT_PARAMS.max_colors).toBe(0);           // 0 = 不限
     expect(DEFAULT_PARAMS.smoothness).toBe(2.0);
     expect(DEFAULT_PARAMS.dither).toBe(false);
   });

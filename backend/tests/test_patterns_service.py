@@ -41,7 +41,7 @@ def test_params_defaults_and_roundtrip():
 
 @pytest.mark.parametrize("bad", [
     {"grid_long_side": 1}, {"grid_long_side": 500},
-    {"max_colors": 0}, {"max_colors": 999},
+    {"max_colors": -1}, {"max_colors": 1}, {"max_colors": 999},
     {"smoothness": -1}, {"smoothness": 1000},
 ])
 def test_params_out_of_range_rejected(bad):
@@ -117,19 +117,19 @@ def test_apply_issue_creates_child_version(db, user, palette):
 
 
 def test_bridge_with_clear_is_the_preferred_action(db, user, palette):
-    """悬空/虚连的首选动作是补透明豆——保持图形不变，这是实拼社区的标准解法。"""
+    """悬空/虚连的解法是补透明豆——保持图形不变，这是实拼社区的标准解法。
+    只靠一个角连着的地方出图时就自动补好（不补实物一拿就散）；离得远的两块留给用户点「应用修复」。"""
     proj = svc.create_project(db, user.id, "t", (FIXTURES / "thin_diagonal.png").read_bytes())
     root = svc.generate(db, proj, svc.params_from_dict({"grid_long_side": 40, "max_colors": 4}))
-    actions = {i["action"] for i in root.buildability["issues"]}
-    assert actions == {"bridge_with_clear"}
-
     clear_idx = palette.clear_index
-    idx = next(n for n, i in enumerate(root.buildability["issues"])
-               if i["type"] == "diagonal_link")
-    child = svc.apply_issue(db, root, idx)
     flat_before = [v for row in root.grid for v in row]
+    assert flat_before.count(clear_idx) > 0, "对角线上的拐点应该已经自动补了透明豆"
+    assert not any(i["type"] == "diagonal_link" for i in root.buildability["issues"])
+    assert {i["action"] for i in root.buildability["issues"]} == {"bridge_with_clear"}
+
+    child = svc.apply_issue(db, root, 0)
     flat_after = [v for row in child.grid for v in row]
-    assert flat_after.count(clear_idx) == flat_before.count(clear_idx) + 1
+    assert flat_after.count(clear_idx) > flat_before.count(clear_idx)
 
 
 def test_apply_issue_rejects_bad_index(db, user):
@@ -190,3 +190,8 @@ def test_export_png_and_pdf_and_materials(db, user, palette):
     mats = svc.materials_of(pat, palette)
     assert mats and mats[0]["count"] >= mats[-1]["count"]
     assert sum(m["count"] for m in mats) == sum(pat.color_stats.values())
+
+
+def test_max_colors_zero_means_unlimited():
+    assert svc.params_from_dict({"max_colors": 0}).max_colors == 0
+    assert svc.params_from_dict({}).max_colors == 0          # 默认就是不限

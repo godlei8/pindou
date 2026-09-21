@@ -10,11 +10,13 @@ interface Props {
   faceHint?: FaceHint | null;
   /** 当前图纸是开着"去背景"算的，却一格都没去掉——说明边缘不是纯色（比如照片）。 */
   backgroundNotFound?: boolean;
+  /** 当前图纸是按平涂插画出的：每格的颜色直接按还原度取，平整度不参与。 */
+  flatArt?: boolean;
   disabled?: boolean;
   onChange(next: PatternParams): void;
 }
 
-export function ParamPanel({ params, sizes, current, faceHint, backgroundNotFound, disabled,
+export function ParamPanel({ params, sizes, current, faceHint, backgroundNotFound, flatArt, disabled,
                              onChange }: Props) {
   const set = <K extends keyof PatternParams>(k: K, v: PatternParams[K]) =>
     onChange({ ...params, [k]: v });
@@ -34,9 +36,11 @@ export function ParamPanel({ params, sizes, current, faceHint, backgroundNotFoun
         </div>
         <div>
           <label htmlFor="colors">最多色数</label>
-          <input id="colors" type="number" min={2} max={64} value={params.max_colors}
+          {/* 0 = 不限（默认）：还原度优先。想少买几种豆再自己填上限 */}
+          <input id="colors" type="number" min={2} max={64} placeholder="不限"
+                 value={params.max_colors >= 2 ? params.max_colors : ""}
                  disabled={disabled}
-                 onChange={(e) => set("max_colors", Number(e.target.value))} />
+                 onChange={(e) => set("max_colors", e.target.value === "" ? 0 : Number(e.target.value))} />
         </div>
       </div>
 
@@ -81,7 +85,10 @@ export function ParamPanel({ params, sizes, current, faceHint, backgroundNotFoun
       <input id="lambda" type="range" min={0} max={8} step={0.5} value={params.smoothness}
              disabled={disabled}
              onChange={(e) => set("smoothness", Number(e.target.value))} />
-      <small>{params.smoothness === 0
+      {/* 平涂图上滑杆不起作用，要说清楚，不然用户拉半天没反应会以为坏了 */}
+      <small>{flatArt
+        ? "这张是平涂图（卡通、logo、线稿）：每格直接取原图的颜色，平整度不起作用；它只影响照片。"
+        : params.smoothness === 0
         ? "0 = 纯最近色，等同市面工具的行为"
         : `λ=${params.smoothness}，越大散点越少、越平整`}</small>
 

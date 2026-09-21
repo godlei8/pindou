@@ -17,6 +17,8 @@ class CellImage:
     #: 平涂取色（core/flat.py）出来的：每格的颜色都是这几种墨之一（sRGB 0–1），没有过渡色。
     #: 面积平均出来的（照片）是 None
     inks: np.ndarray | None = None
+    #: 平涂取色时算好的、只跟原图有关的中间结果（墨标签图等），评分时接着用，省一半时间
+    flat_cache: dict | None = None
 
     @property
     def flat(self) -> bool:

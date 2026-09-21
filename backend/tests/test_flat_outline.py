@@ -149,3 +149,26 @@ def test_home_page_samples_have_closed_outlines(pal, name, n):
     res = pipeline.run(path.read_bytes(), Params(grid_long_side=n, remove_background=True), pal)
     # 草莓最下面两颗籽在原图里就压在描边上、贴着外缘：那两格挨着空白是忠实的，不算断口
     assert exposed(res.grid, code_of(pal, INK)) <= (2 if name == "strawberry" else 0)
+
+
+def _lineart():
+    return (SAMPLES.parents[2] / "backend" / "tests" / "fixtures" / "bench" / "flat_thin_lineart.png").read_bytes()
+
+
+@pytest.mark.parametrize("n", [40, 58, 80])
+def test_thin_line_art_keeps_its_lines_connected(pal, n):
+    """2.5px 的线稿：线只占一格的两三成。原来 40/58 格下线断成几十截、花茎是只靠对角连着的锯齿
+    （可拼性 44/63）。现在线是连着的，整朵花是一整块。"""
+    res = pipeline.run(_lineart(), Params(grid_long_side=n, remove_background=True), pal)
+    assert res.fidelity["fragments"] <= 1
+    assert res.report.n_components == 1
+    assert res.report.score > 80
+
+
+def test_clear_beads_do_not_count_against_fidelity(pal):
+    """自动补的透明豆看不见：还原度按"没填"算，不因为接牢了反而掉分。"""
+    res = pipeline.run(_lineart(), Params(grid_long_side=58, remove_background=True), pal)
+    assert pal.clear_index in res.color_stats
+    no_clear = np.where(res.grid == pal.clear_index, EMPTY, res.grid)
+    again = pipeline.measure_fidelity(_lineart(), res.params, no_clear.astype(np.int16), pal)
+    assert again["score"] == res.fidelity["score"]

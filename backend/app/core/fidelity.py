@@ -31,8 +31,8 @@ import numpy as np
 from app.core.color import delta_e_2000, linear_to_srgb, srgb_to_lab, srgb_to_linear
 from app.core.types import EMPTY
 
-#: 每格看这么多像素见方
-_PX_PER_CELL = 8
+#: 每格看这么多像素见方。模糊半径是 0.6 格，4 个像素足够分辨；8 个像素慢 4 倍，分数只差零点几
+_PX_PER_CELL = 4
 #: 模糊半径（高斯 σ），单位：格
 BLUR_CELLS = 0.6
 WORST_SHARE = 0.05
@@ -47,6 +47,9 @@ def _on_white_blurred(rgb: np.ndarray, alpha: np.ndarray, sigma: float) -> np.nd
     return srgb_to_lab(np.clip(linear_to_srgb(lin), 0, 1).astype(np.float64))
 
 
+#: 每多碎一块扣这么多分，封顶 FRAGMENT_CAP
+FRAGMENT_COST = 0.5
+FRAGMENT_CAP = 15.0
 #: 平涂比法：该空的填了、该填的空了，按这么大的色差算
 SHAPE_PENALTY = 50.0
 
@@ -64,13 +67,16 @@ def _summary(e: np.ndarray, method: str) -> dict:
     }
 
 
-def _measure_flat(rgba, grid, palette_rgb, inks) -> dict:
+def _measure_flat(rgba, grid, palette_rgb, inks, cache: dict | None = None) -> dict:
     """平涂比法：误差的定义在 core/refine.py 的 Objective 里，和取色时优化的是同一个。"""
     from app.core.flat import PX, label_source
     from app.core.refine import Objective
     rows, cols = grid.shape
+    if cache is not None:                                 # 取色时已经标过像素了，接着用
+        inks, src, shared = cache["all_inks"], cache["src"], cache["shared"]
+    else:
+        src, shared = label_source(rgba, rows, cols, inks), None
     k = len(inks)
-    src = label_source(rgba, rows, cols, inks)
     colors = [int(c) for c in np.unique(grid) if c != EMPTY]
     pat = np.full(grid.shape, len(colors), dtype=np.int64)
     for j, c in enumerate(colors):
@@ -80,34 +86,52 @@ def _measure_flat(rgba, grid, palette_rgb, inks) -> dict:
     cost[:k, :len(colors)] = delta_e_2000(
         srgb_to_lab(inks.astype(np.float64))[:, None, :],
         srgb_to_lab(palette_rgb[colors] / 255.0)[None, :, :])
-    e = Objective(src, k, cost, PX).error_map(pat)
+    e = Objective(src, k, cost, PX, shared).error_map(pat)
     region = (src != k).reshape(2 * rows, PX // 2, 2 * cols, PX // 2).any((1, 3))         | np.repeat(np.repeat(pat != len(colors), 2, 0), 2, 1)
-    return _summary(e[region], "flat")
+    out = _summary(e[region], "flat")
+    # 碎片：原图里连成一体的线 / 色块，图纸上断成几截。逐点的误差看不出"断了"——
+    # 线只占一格两三成时，断口那一格画不画误差差不多，但人眼一眼就看得出线断了。
+    nearest = cost[:k, :len(colors)].argmin(0) if colors else np.zeros(0, int)   # 每种豆对应哪种墨
+    as_ink = np.full(pat.shape, k, dtype=np.int64)
+    for j in range(len(colors)):
+        as_ink[pat == j] = nearest[j]
+    from app.core.refine import fragments
+    out["fragments"] = int(fragments(src, as_ink, k, PX))
+    out["score"] = round(max(0.0, out["score"] - min(FRAGMENT_CAP, FRAGMENT_COST * out["fragments"])), 1)
+    return out
 
 
 def measure(rgba: np.ndarray, grid: np.ndarray, palette_rgb: np.ndarray,
-            inks: np.ndarray | None = None) -> dict | None:
+            inks: np.ndarray | None = None, cache: dict | None = None,
+            clear_index: int | None = None) -> dict | None:
     """rgba：出图时实际用的原图（已去背景），0–1 浮点。palette_rgb：0–255。
     inks：平涂插画认出来的几种墨（flat.detect_inks），照片传 None。全空时返回 None。"""
+    if clear_index is not None:                           # 透明豆看不见：按"没填"算
+        grid = np.where(grid == clear_index, EMPTY, grid)
     rows, cols = grid.shape
     if not (grid != EMPTY).any():
         return None
     if inks is not None:
-        return _measure_flat(rgba, grid, palette_rgb, inks)
+        return _measure_flat(rgba, grid, palette_rgb, inks, cache)
     # 原图缩放到每格 _PX_PER_CELL 像素（预乘 alpha，免得透明区的颜色渗进来）
-    w, h = cols * _PX_PER_CELL, rows * _PX_PER_CELL
-    a = rgba[..., 3:4].astype(np.float32)
-    pre = cv2.resize(np.concatenate([rgba[..., :3].astype(np.float32) * a, a], -1), (w, h),
-                     interpolation=cv2.INTER_AREA)
-    src_a = pre[..., 3]
-    src_rgb = pre[..., :3] / np.maximum(src_a, 1e-6)[..., None]
+    sigma = BLUR_CELLS * _PX_PER_CELL
+    key = ("blur_src", rows, cols)
+    if cache is not None and key in cache:                # 同一张原图比两个版本：原图那一半只算一次
+        src_lab, src_a = cache[key]
+    else:
+        w, h = cols * _PX_PER_CELL, rows * _PX_PER_CELL
+        a = rgba[..., 3:4].astype(np.float32)
+        pre = cv2.resize(np.concatenate([rgba[..., :3].astype(np.float32) * a, a], -1), (w, h),
+                         interpolation=cv2.INTER_AREA)
+        src_a = pre[..., 3]
+        src_lab = _on_white_blurred(pre[..., :3] / np.maximum(src_a, 1e-6)[..., None], src_a, sigma)
+        if cache is not None:
+            cache[key] = (src_lab, src_a)
 
     big = np.kron(grid, np.ones((_PX_PER_CELL, _PX_PER_CELL), dtype=grid.dtype))
     pat_a = (big != EMPTY).astype(np.float32)
     pat_rgb = (palette_rgb[np.where(big == EMPTY, 0, big)] / 255.0).astype(np.float32)
 
-    sigma = BLUR_CELLS * _PX_PER_CELL
-    err = delta_e_2000(_on_white_blurred(src_rgb, src_a, sigma),
-                       _on_white_blurred(pat_rgb, pat_a, sigma))
+    err = delta_e_2000(src_lab, _on_white_blurred(pat_rgb, pat_a, sigma))
     region = cv2.GaussianBlur(np.maximum(src_a, pat_a), (0, 0), sigma) > 0.05
     return _summary(err[region], "blur")

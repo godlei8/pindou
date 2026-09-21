@@ -20,7 +20,7 @@ export class ApiError extends Error {
  *  照片边缘颜色不统一，后端会自动跳过，不会误删。 */
 export const DEFAULT_PARAMS: PatternParams = {
   grid_long_side: 58,
-  max_colors: 24,
+  max_colors: 0,              // 0 = 不限
   smoothness: 2.0,
   dither: false,
   palette_id: "mard",

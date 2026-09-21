@@ -24,10 +24,19 @@ def _axis_period(signal: np.ndarray, min_cell: int) -> tuple[float, float, float
     peaks, _ = find_peaks(signal, prominence=max(med * 2.0, 1e-6), distance=min_cell - 1)
     if len(peaks) < 3:
         return None
+    # 找一个周期，让（几乎）所有边界都落在同一张网格上。不能要求"相邻边界的间距都一样"：
+    # 像素画里连着几格同色很常见（四周留白、大色块），那几条边界不存在，间距会是 12、24、36 混着。
     gaps = np.diff(peaks)
-    period = float(np.median(gaps))
-    cv = float(np.std(gaps) / period) if period > 0 else 1.0
-    if period < min_cell or cv > 0.15:
+    period = None
+    for cand in np.unique(gaps[gaps >= min_cell]):
+        res = (peaks - peaks[0]) % cand
+        # 容差按周期算：周期只有 3 像素时容差不能有 1，否则任何位置都"对得上"
+        off_grid = np.minimum(res, cand - res) > np.floor(0.08 * cand)
+        # 边界还得够多：一个纯色物体只有左右两条边，随便什么周期都"对得上"，那不是像素画
+        if off_grid.mean() <= 0.1 and len(peaks) >= max(4, 0.3 * signal.size / cand):
+            period, cv = float(cand), float(off_grid.mean())
+            break
+    if period is None:
         return None
     # 边界峰位于格子右/下边缘的最后一个像素之后（差分索引 i 对应像素 i 与 i+1 之间）
     offset = float(np.median((peaks + 1) % period))

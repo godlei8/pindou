@@ -17,7 +17,7 @@ const SIZES = [
 test("展示当前参数值", () => {
   render(<ParamPanel current={null} params={DEFAULT_PARAMS} sizes={[]} onChange={() => {}} />);
   expect((screen.getByLabelText(/格数/) as HTMLInputElement).value).toBe("58");
-  expect((screen.getByLabelText(/色数/) as HTMLInputElement).value).toBe("24");
+  expect((screen.getByLabelText(/色数/) as HTMLInputElement).value).toBe("");      // 默认不限
   expect((screen.getByLabelText(/平整度/) as HTMLInputElement).value).toBe("2");
 });
 
@@ -124,4 +124,18 @@ test("开了去背景却没找到纯色背景时说明原因和办法", () => {
   render(<ParamPanel current={null} params={DEFAULT_PARAMS} sizes={[]} backgroundNotFound
                      onChange={() => {}} />);
   expect(screen.getByText(/没找到能去掉的纯色背景/).textContent).toContain("橡皮擦");
+});
+
+test("平涂图：说明平整度不起作用", () => {
+  render(<ParamPanel params={{ ...DEFAULT_PARAMS }} sizes={[]} current={null} flatArt onChange={() => {}} />);
+  expect(screen.getByText(/平整度不起作用/)).toBeTruthy();
+});
+
+test("最多色数默认不限：输入框是空的，清空 = 0", async () => {
+  const onChange = vi.fn();
+  render(<ParamPanel params={{ ...DEFAULT_PARAMS, max_colors: 12 }} sizes={[]} current={null} onChange={onChange} />);
+  const input = screen.getByLabelText("最多色数") as HTMLInputElement;
+  expect(input.placeholder).toBe("不限");
+  await userEvent.clear(input);
+  expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ max_colors: 0 }));
 });

@@ -29,6 +29,9 @@ def _load(image) -> np.ndarray:
 #: 抗锯齿像素和实打实的颜色一样多，逐像素投票的结果边缘毛糙、冒杂色。
 MIN_PX_PER_CELL = 4
 BORDER_TOLERANCE = 0.05
+#: "不限色数"时实际给选色的名额。色卡一共 291 色，但一张图用得上的远没这么多：
+#: 实测给 96 和给 291 选出来的结果一样，而 291 要慢两三倍。
+UNLIMITED_COLORS = 96
 TONE_REFINE = True
 
 
@@ -58,11 +61,44 @@ def _downsample(rgba: np.ndarray, params: Params):
         return downsample.downsample_mode(rgba, info), "pixel_art", rgba
     inks, rgba = _detect_flat(rgba, params.grid_long_side)
     rows, cols = downsample.grid_shape(rgba.shape[0], rgba.shape[1], params.grid_long_side)
-    cells = downsample.downsample_area(rgba, rows, cols)
-    # 平涂插画：每格取原图自己的一种颜色，不要抗锯齿和缩小混出来的过渡色（见 core/flat.py）
+    # 平涂插画：每格取原图自己的一种颜色，不要抗锯齿和缩小混出来的过渡色（见 core/flat.py）。
+    # 它用不到面积平均（含双边滤波，挺贵），所以只有照片才算。
     if inks is not None:
-        cells = flat.downsample_inks(rgba, rows, cols, inks, cells.coverage)
+        cells = flat.downsample_inks(rgba, rows, cols, inks)
+    else:
+        cells = downsample.downsample_area(rgba, rows, cols)
     return cells, "image", rgba
+
+
+def _bridge_with_clear(grid: np.ndarray, clear_index: int | None) -> np.ndarray:
+    """整个图形只靠一个角连着的地方，补一颗**透明豆**接牢。
+    拼豆靠上下左右的边熔在一起，只有角碰着的两块实物一拿就散——可拼性里最要命的一类。
+    透明豆是实拼社区的标准解法：接牢了，图形的颜色一格不变，还原度不受影响。
+    只补"不补就散成两块"的地方（花茎、触角、细线的拐点），不是每个对角都补。"""
+    if clear_index is None:
+        return grid
+    from scipy import ndimage
+    grid = grid.copy()
+    rows, cols = grid.shape
+    for _ in range(3):
+        body = grid != EMPTY
+        comp, n = ndimage.label(body)
+        if n <= 1:
+            break
+        fixed = 0
+        for r in range(rows - 1):
+            for c in range(cols - 1):
+                for a, b, p, q in (((r, c), (r + 1, c + 1), (r, c + 1), (r + 1, c)),
+                                   ((r, c + 1), (r + 1, c), (r, c), (r + 1, c + 1))):
+                    if body[a] and body[b] and not body[p] and not body[q] and comp[a] != comp[b]:
+                        grid[p] = clear_index
+                        body[p] = True
+                        comp[comp == comp[b]] = comp[a]
+                        comp[p] = comp[a]
+                        fixed += 1
+        if not fixed:
+            break
+    return grid
 
 
 def _flat_palette(cells, palette: Palette, max_colors: int) -> np.ndarray | None:
@@ -102,7 +138,7 @@ def measure_fidelity(image, params: Params, grid: np.ndarray, palette: Palette) 
             inks = None
         else:
             inks, rgba = _detect_flat(rgba, params.grid_long_side)
-        return fidelity.measure(rgba, grid, palette.rgb, inks)
+        return fidelity.measure(rgba, grid, palette.rgb, inks, clear_index=palette.clear_index)
     except Exception:
         return None
 
@@ -119,62 +155,80 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
 
     lab = _cell_lab(cells.rgb)
     ok = srgb_to_oklab(cells.rgb)
-    working = _flat_palette(cells, palette, params.max_colors)
-    if working is None:
-        working = select_palette(ok[cells.mask], palette.oklab, k=params.max_colors)
-    # 给嘴唇这类"小而显眼"、被 k-medoids 漏掉的颜色补名额（不突破 max_colors）
-    working, rescued = rescue_salient_colors(ok, cells.mask, palette.oklab, working,
-                                             max_colors=params.max_colors)
-    k = len(working)
-    cost = pairwise_delta_e(lab.reshape(-1, 3), palette.lab[working]).reshape(rows, cols, k)
-
-    locked = -np.ones((rows, cols), dtype=np.int64)
-    if params.lock_outlines:
-        darkest = int(np.argmin(palette.lab[working][:, 0]))
-        locked[detect_outline_cells(cells.rgb, cells.mask)] = darkest
-    for r, c in params.protected_cells:
-        if 0 <= r < rows and 0 <= c < cols and cells.mask[r, c]:
-            locked[r, c] = int(np.argmin(cost[r, c]))
-
     # 五官开小灶：眼睛、鼻子、嘴巴周围原图反差明显的边罚得轻，单格瞳孔、鼻孔不被当杂点抹掉。
     # 像素图输入不做：那本来就是一格一格画好的，不需要也检测不准。检测失败时 faces=[]，一切照旧。
     faces = [] if kind == "pixel_art" else face.detect_faces(rgba)
     edge_weight = face.feature_edge_weights(faces, lab, cells.mask)
-    local = assign_labels(cost, cells.mask, params.smoothness, locked, edge_weight=edge_weight)
+    fid_cache: dict = {}
 
-    def finalize(labels: np.ndarray):
-        g = np.full((rows, cols), EMPTY, dtype=np.int16)
-        g[cells.mask] = working[labels[cells.mask]]
-        protected_colors = {int(g[r, c]) for r, c in params.protected_cells
-                            if 0 <= r < rows and 0 <= c < cols and g[r, c] != EMPTY}
-        if palette.clear_index is not None:
-            protected_colors.add(palette.clear_index)
-        # 补进来的特征色往往只有几颗豆，低于小色号阈值也不能合并掉——那正是人眼最先看的地方
-        protected_colors.update(rescued)
-        if cells.flat:
-            # 平涂插画：图纸上每种颜色都是原图真有的（没有过渡色可并）。只有两颗豆的眼睛高光
-            # 并掉就是少了高光——还原度优先，不合并
-            protected_colors.update(int(c) for c in np.unique(g[cells.mask]))
-        g, _ = merge_small_colors(g, palette.lab, params.small_color_threshold,
-                                  protected=protected_colors)
-        try:                 # 还原度是附加环节，失败不能拖垮出图
-            f = fidelity.measure(rgba, g, palette.rgb, cells.inks)
-        except Exception:
-            f = None
-        return g, f
+    def solve(limit: int):
+        working = _flat_palette(cells, palette, limit)
+        if working is None:
+            working = select_palette(ok[cells.mask], palette.oklab, k=limit)
+        # 给嘴唇这类"小而显眼"、被 k-medoids 漏掉的颜色补名额（不突破 max_colors）
+        working, rescued = rescue_salient_colors(ok, cells.mask, palette.oklab, working,
+                                                 max_colors=limit)
+        k = len(working)
+        cost = pairwise_delta_e(lab.reshape(-1, 3), palette.lab[working]).reshape(rows, cols, k)
 
-    grid, fid = finalize(local)
-    if not cells.flat and kind != "pixel_art" and TONE_REFINE:
-        # 照片：从图割的结果出发，让色块边界按"离远一点看更准"移动（core/refine.py 的 refine_tones）。
-        # 守门：两个版本都算还原度，哪个高用哪个——任何优化步骤都不许让还原度下降。
-        # （实测 6 张照片 × 2 档：平均 84.9 → 85.4、散点 1.6% → 1.0%，但有 3 组略降，所以要守门。）
-        try:
-            tuned = refine_tones(ok, cells.mask, palette.oklab[working], local, locked)
-            grid2, fid2 = finalize(tuned)
-            if fid is not None and fid2 is not None and fid2["score"] > fid["score"]:
+        locked = -np.ones((rows, cols), dtype=np.int64)
+        if params.lock_outlines:
+            darkest = int(np.argmin(palette.lab[working][:, 0]))
+            locked[detect_outline_cells(cells.rgb, cells.mask)] = darkest
+        for r, c in params.protected_cells:
+            if 0 <= r < rows and 0 <= c < cols and cells.mask[r, c]:
+                locked[r, c] = int(np.argmin(cost[r, c]))
+
+        local = assign_labels(cost, cells.mask, params.smoothness, locked, edge_weight=edge_weight)
+
+        def finalize(labels: np.ndarray):
+            g = np.full((rows, cols), EMPTY, dtype=np.int16)
+            g[cells.mask] = working[labels[cells.mask]]
+            protected_colors = {int(g[r, c]) for r, c in params.protected_cells
+                                if 0 <= r < rows and 0 <= c < cols and g[r, c] != EMPTY}
+            if palette.clear_index is not None:
+                protected_colors.add(palette.clear_index)
+            # 补进来的特征色往往只有几颗豆，低于小色号阈值也不能合并掉——那正是人眼最先看的地方
+            protected_colors.update(rescued)
+            if cells.flat or kind == "pixel_art":
+                # 平涂插画、像素画：图纸上每种颜色都是原图真有的（没有过渡色可并）。只有两颗豆的眼睛高光
+                # 并掉就是少了高光——还原度优先，不合并
+                protected_colors.update(int(c) for c in np.unique(g[cells.mask]))
+            g, _ = merge_small_colors(g, palette.lab, params.small_color_threshold,
+                                      protected=protected_colors)
+            g = _bridge_with_clear(g, palette.clear_index)
+            try:                 # 还原度是附加环节，失败不能拖垮出图
+                f = fidelity.measure(rgba, g, palette.rgb, cells.inks,
+                                     cells.flat_cache if cells.flat else fid_cache,
+                                     clear_index=palette.clear_index)
+            except Exception:
+                f = None
+            return g, f
+
+        grid, fid = finalize(local)
+        if not cells.flat and kind != "pixel_art" and TONE_REFINE:
+            # 照片：从图割的结果出发，让色块边界按"离远一点看更准"移动（core/refine.py 的 refine_tones）。
+            # 守门：两个版本都算还原度，哪个高用哪个——任何优化步骤都不许让还原度下降。
+            # （实测 6 张照片 × 2 档：平均 84.9 → 85.4、散点 1.6% → 1.0%，但有 3 组略降，所以要守门。）
+            try:
+                tuned = refine_tones(ok, cells.mask, palette.oklab[working], local, locked)
+                grid2, fid2 = finalize(tuned)
+                if fid is not None and fid2 is not None and fid2["score"] > fid["score"]:
+                    grid, fid = grid2, fid2
+            except Exception:
+                pass
+        return grid, fid
+
+    if params.max_colors >= 2:
+        grid, fid = solve(params.max_colors)
+    else:
+        # 不限色数（默认）。多给颜色通常更像（真实照片 +0.8～+2.1），但不是每张图都是——
+        # 选色是启发式的，个别图 24 色反而更准。两个都算，还原度高的那个赢。平涂图颜色是定死的，算一次。
+        grid, fid = solve(UNLIMITED_COLORS)
+        if not cells.flat and kind != "pixel_art" and fid is not None:
+            grid2, fid2 = solve(24)
+            if fid2 is not None and fid2["score"] > fid["score"]:
                 grid, fid = grid2, fid2
-        except Exception:
-            pass
     return _finish(grid, cells.rgb, params, palette, kind, faces, fid)
 
 

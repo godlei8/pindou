@@ -50,11 +50,17 @@ class Objective:
     cost[i, j]：原图是墨 i、图纸上放的是第 j 种豆的色差；最后一行/列是透明/留空。
     """
 
-    def __init__(self, src: np.ndarray, k: int, cost: np.ndarray, px: int):
+    def __init__(self, src: np.ndarray, k: int, cost: np.ndarray, px: int, shared: dict | None = None):
+        """shared：只跟原图有关的中间结果（小块直方图、各种墨的距离图）。取色和评分各建一个 Objective，
+        这部分占一大半时间，算一次传过来共用。"""
         self.src, self.k, self.cost, self.px = src, k, cost, px
         self.rows, self.cols = src.shape[0] // px, src.shape[1] // px
         self.m = cost.shape[1] - 1                       # 图纸标签 0..m，m = 留空
-        self.hist = self._quadrant_hist()
+        self.shared = shared if shared is not None else {}
+        if "hist" not in self.shared:
+            self.shared["hist"] = self._quadrant_hist()
+            self.shared["place"] = self._placement()
+        self.hist = self.shared["hist"]
         self.ep_px = self._pattern_side()                # (h, w, m+1) 每个像素放 j 的误差
         self.ep = self.ep_px.reshape(self.rows, px, self.cols, px, -1).sum((1, 3))
         # 以格 (r, c) 为中心，受它影响的 4×4 个小块，以及每个小块够得到的四个格子（第一个是自己那格）
@@ -72,14 +78,25 @@ class Objective:
         h = onehot.reshape(2 * self.rows, half, 2 * self.cols, half, self.k + 1).sum((1, 3))
         return np.pad(h, ((2, 2), (2, 2), (0, 0)))       # 四周垫一格（两个小块）
 
-    def _pattern_side(self) -> np.ndarray:
+    def _placement(self) -> np.ndarray:
+        """place[y, x, i]：这个像素离原图里最近的墨 i 有多远，折成的代价。"""
+        import cv2
         reach = self.px / 2
-        dist = np.stack([ndimage.distance_transform_edt(self.src != i) if (self.src == i).any()
-                         else np.full(self.src.shape, np.inf) for i in range(self.k + 1)], -1)
-        place = SLOP * np.minimum(dist, 2 * reach) / reach + np.where(dist > 2 * reach, FAR, 0.0)
+        out = np.empty((*self.src.shape, self.k + 1), dtype=np.float32)
+        for i in range(self.k + 1):
+            m = self.src == i
+            if m.any():                                  # cv2 的距离变换比 scipy 快一个量级
+                dist = cv2.distanceTransform((~m).astype(np.uint8), cv2.DIST_L2, 5)
+                out[..., i] = SLOP * np.minimum(dist, 2 * reach) / reach + np.where(dist > 2 * reach, FAR, 0.0)
+            else:
+                out[..., i] = np.inf
+        return out
+
+    def _pattern_side(self) -> np.ndarray:
+        place, cost = self.shared["place"], self.cost.astype(np.float32)
         out = np.empty((*self.src.shape, self.m + 1), dtype=np.float32)
         for j in range(self.m + 1):
-            out[..., j] = (place + self.cost[:, j]).min(-1)
+            out[..., j] = (place + cost[:, j]).min(-1)
         return out
 
     def touching(self) -> np.ndarray:
@@ -175,9 +192,10 @@ def refine(obj: Objective, init: np.ndarray) -> np.ndarray:
                    for rr, cc in ((r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1))
                    if 0 <= rr < rows and 0 <= cc < cols)
 
-    def delta(r: int, c: int, new: int) -> float:
+    def delta(r: int, c: int, new: int, before: float | None = None) -> float:
         cur = int(pat[r + 1, c + 1])
-        before = obj.source_window(pat, r + 1, c + 1)
+        if before is None:
+            before = obj.source_window(pat, r + 1, c + 1)
         pat[r + 1, c + 1] = new
         after = obj.source_window(pat, r + 1, c + 1)
         pat[r + 1, c + 1] = cur
@@ -195,9 +213,12 @@ def refine(obj: Objective, init: np.ndarray) -> np.ndarray:
         cur = int(pat[r + 1, c + 1])
         best, best_d = cur, -1e-6
         if not breaks(r, c, cur):
+            before = None
             for j in np.flatnonzero(present[r, c]):
                 if j != cur and allowed(r, c, int(j)):
-                    d = delta(r, c, int(j))
+                    if before is None:                   # "改动前"只算一次，各个候选共用
+                        before = obj.source_window(pat, r + 1, c + 1)
+                    d = delta(r, c, int(j), before)
                     if d < best_d:
                         best, best_d = int(j), d
         return best_d, best
@@ -205,19 +226,28 @@ def refine(obj: Objective, init: np.ndarray) -> np.ndarray:
     # 每一轮：先算出所有格子各自最好的改动，再按收益从大到小执行（执行前按当时的状态重算一次）。
     # 按从上到下的顺序边算边改会陷进局部最优：两格宽的初稿线，先碰到的那格被换成了旁边的填充色，
     # 而真正该换的是另一格（收益大得多）——猫样图轮廓外因此多出几颗孤零零的橙豆。
+    # 只重算"可能变了"的格子：第一轮是所有非纯色的格子，之后只看上一轮改动过的格子周围。
+    # 执行时如果这格周围本轮还没人动过，事先算好的结果仍然有效，不用重算。
+    dirty = np.zeros((rows + 2, cols + 2), dtype=bool)
+    dirty[active[:, 0] + 1, active[:, 1] + 1] = True
+    is_active = dirty.copy()
     for _ in range(MAX_SWEEPS):
         moves = []
-        for r, c in active:
-            d, j = best_move(r, c)
+        for r, c in np.argwhere(dirty) - 1:
+            d, j = best_move(int(r), int(c))
             if j != pat[r + 1, c + 1]:
-                moves.append((d, int(r), int(c)))
-        changed = 0
-        for _, r, c in sorted(moves):
-            d, j = best_move(r, c)
+                moves.append((d, int(r), int(c), j))
+        dirty[:] = False
+        touched = np.zeros_like(dirty)
+        for d, r, c, j in sorted(moves):
+            if touched[r:r + 3, c:c + 3].any():
+                d, j = best_move(r, c)
             if j != pat[r + 1, c + 1]:
                 pat[r + 1, c + 1] = j
-                changed += 1
-        if not changed:
+                touched[r + 1, c + 1] = True
+                dirty[r:r + 3, c:c + 3] = True
+        dirty &= is_active
+        if not dirty.any():
             break
 
     # 可拼性：孤零零的一颗豆（上下左右没有同色的）试着并进邻居——只有还原度不受损才并
@@ -232,8 +262,80 @@ def refine(obj: Objective, init: np.ndarray) -> np.ndarray:
                 pat[r + 1, c + 1] = j
                 break
     counts = obj.hist[2:-2, 2:-2].reshape(rows, 2, cols, 2, -1).sum((1, 3))
+    _connect(pat, obj.src, counts, k, obj.px)
     _separate(pat, touch, ndimage.uniform_filter(counts, size=(3, 3, 1), mode="constant"), k)
     return pat[1:-1, 1:-1]
+
+
+_EIGHT = np.ones((3, 3), dtype=int)
+#: 碎片：原图里至少这么大（格）的色块才算一块；图纸上同色的豆 8-连通算一块
+FRAGMENT_MIN_CELLS = 0.4
+
+
+def fragments(src: np.ndarray, pat: np.ndarray, n_src: int, px: int) -> int:
+    """图纸比原图多碎了几块。原图里连成一体的线，图纸上断成三截 = 多 2 块。
+    pat 的标签和 src 的墨一一对应时才有意义（取色阶段）；评分阶段用 fragments_by_color。"""
+    extra = 0
+    for i in range(n_src):
+        m = src == i
+        if not m.any():
+            continue
+        lab, n = ndimage.label(m, structure=_EIGHT)
+        big = int((np.bincount(lab.ravel())[1:] >= FRAGMENT_MIN_CELLS * px * px).sum())
+        got = ndimage.label(pat == i, structure=_EIGHT)[1]
+        extra += max(0, got - max(big, 1)) if got else 0
+    return extra
+
+
+def _connect(pat: np.ndarray, src: np.ndarray, counts: np.ndarray, k: int, px: int) -> None:
+    """把断开的线接上。优化是一格一格看的：线只占一格的两三成时，单看这一格"不画更划算"，
+    于是线上留下断口。这里按整条线看：原图里这种墨经过的格子全收进来，
+    再把"不是原来就有、去掉也不断开"的格子按墨的多少从少到多削掉，剩下的就是补上的断口。
+    只处理图纸上确实碎了的墨；对所有颜色一样。pat 四周垫过一格。"""
+    rows, cols = counts.shape[:2]
+    for i in range(k):
+        had = pat[1:-1, 1:-1] == i
+        if not had.any() or fragments(src, pat[1:-1, 1:-1], i + 1, px) == fragments(src, pat[1:-1, 1:-1], i, px):
+            continue
+        cand = had | (counts[..., i] >= max(2, 0.03 * px * px))
+        full = np.pad(cand, 1)
+        extra = np.argwhere(cand & ~had)
+        order = np.argsort(counts[extra[:, 0], extra[:, 1], i], kind="stable")
+        for r, c in extra[order]:
+            nb = full[r:r + 3, c:c + 3]
+            n = int(nb.sum()) - 1
+            # 去掉也不断开的就去掉；线头只有在这格里墨很少时才去（真正的线头要留）
+            if (n >= 2 and c8(nb) == 1) or n == 0 or (n == 1 and counts[r, c, i] < 0.12 * px * px):
+                full[r + 1, c + 1] = False
+        add = full[1:-1, 1:-1] & ~had
+        pat[1:-1, 1:-1][add] = i
+        _straighten(pat, counts, i, k)
+
+
+def _straighten(pat: np.ndarray, counts: np.ndarray, i: int, k: int) -> None:
+    """一条直线正好骑在两列（行）格子中间时，削薄的结果会左一格右一格地走成锯齿，
+    只靠对角连着。把夹在两个同侧对角邻居中间的那一格挪到它们那一列（行）去，线就直了。
+    挪过去的那格里这种墨不能少太多（≥ 六成），不然就是真的拐弯，不是锯齿。"""
+    rows, cols = counts.shape[:2]
+    for r in range(rows):
+        for c in range(cols):
+            if pat[r + 1, c + 1] != i:
+                continue
+            nb = pat[r:r + 3, c:c + 3] == i
+            if nb.sum() != 3:                              # 自己 + 恰好两个邻居
+                continue
+            for dr, dc in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+                if dr == 0:
+                    ends = nb[0, 1 + dc] and nb[2, 1 + dc]
+                else:
+                    ends = nb[1 + dr, 0] and nb[1 + dr, 2]
+                rr, cc = r + dr, c + dc
+                if ends and 0 <= rr < rows and 0 <= cc < cols and pat[rr + 1, cc + 1] != i                         and counts[rr, cc, i] >= 0.6 * counts[r, c, i]:
+                    rest = counts[r, c].copy()
+                    rest[i] = -1
+                    pat[r + 1, c + 1] = int(rest.argmax()) if rest.max() > 0 else k
+                    pat[rr + 1, cc + 1] = i
+                    break
 
 
 def _separate(pat: np.ndarray, touch: np.ndarray, around: np.ndarray, k: int) -> None:
