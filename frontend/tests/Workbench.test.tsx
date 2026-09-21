@@ -338,3 +338,41 @@ describe("手机布局", () => {
     expect(screen.getByText("有未保存的改动")).toBeTruthy();
   });
 });
+
+describe("全屏预览", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+
+  test("点「全屏」画布铺满、先看全貌；再点「退出全屏」回来", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    mount();
+    const enter = await screen.findByRole("button", { name: "全屏" });
+    const stage = () => document.querySelector(".canvas-stage")!;
+    expect(stage().classList.contains("is-full")).toBe(false);
+
+    await userEvent.click(enter);
+    expect(stage().classList.contains("is-full")).toBe(true);
+    expect(screen.getByRole("button", { name: "看全貌" }).getAttribute("aria-pressed"))
+      .toBe("true");
+
+    await userEvent.click(screen.getByRole("button", { name: "退出全屏" }));
+    expect(stage().classList.contains("is-full")).toBe(false);
+  });
+
+  test("Esc 退出全屏", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "全屏" }));
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector(".canvas-stage")!.classList.contains("is-full")).toBe(false);
+  });
+
+  test("浏览器不给系统全屏也不报错，页面内照样铺满", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    document.documentElement.requestFullscreen = () => Promise.reject(new Error("denied"));
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "全屏" }));
+    expect(document.querySelector(".canvas-stage")!.classList.contains("is-full")).toBe(true);
+    // @ts-expect-error 清掉桩
+    delete document.documentElement.requestFullscreen;
+  });
+});

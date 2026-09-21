@@ -12,6 +12,9 @@ interface Props {
   onZoomOut(): void;
   onFit(): void;
   onCodes(): void;
+  /** 全屏预览：画布铺满整个屏幕，手机上看细节用。 */
+  fullscreen?: boolean;
+  onToggleFullscreen?(): void;
 }
 
 export function CanvasBar(props: Props) {
@@ -20,7 +23,7 @@ export function CanvasBar(props: Props) {
   return (
     <div className="canvas-bar">
       <span className="current-color">
-        当前颜色
+        <span className="label">当前颜色</span>
         {colorHex
           ? <>
               <i style={{ background: colorHex }} aria-hidden="true" />
@@ -38,6 +41,12 @@ export function CanvasBar(props: Props) {
         <button type="button" onClick={props.onZoomIn}
                 disabled={!props.canZoomIn} aria-label="放大">+</button>
         <small>{cellPx}px/格{showsCodes ? "・显示色号" : ""}</small>
+        {props.onToggleFullscreen && (
+          <button type="button" onClick={props.onToggleFullscreen}
+                  aria-pressed={props.fullscreen ?? false}>
+            {props.fullscreen ? "退出全屏" : "全屏"}
+          </button>
+        )}
       </span>
     </div>
   );

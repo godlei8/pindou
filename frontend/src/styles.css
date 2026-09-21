@@ -57,8 +57,11 @@ body {
   /* 满高外壳：锁死在视口高度。
      用 min-height 不行——内容一高 body 就跟着长，等于没锁。
      dvh 而不是 vh：移动端浏览器地址栏收起时 vh 会算多一截。 */
-  height: 100dvh;
+  height: var(--app-h, 100vh);   /* 老 WebView 不认 dvh 的兜底，--app-h 由 main.tsx 量出 */
   overflow: hidden;
+}
+@supports (height: 100dvh) {
+  body { height: 100dvh; }
 }
 
 /* React 挂在 #root 上，真正的 flex 容器是它，不是 body */
@@ -595,7 +598,7 @@ button.card-body:disabled { opacity: .6; cursor: progress; }
   height: 100%;
   overflow: hidden;
 }
-.workbench .editor > .canvas-wrap { flex: 1 1 auto; min-height: 0; }
+.workbench .editor .canvas-wrap { flex: 1 1 auto; min-height: 0; }
 
 .workbench .panel img { display: block; max-width: 100%; border: var(--bd) solid var(--ink); }
 
@@ -844,7 +847,7 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
   .workbench .side > .versions-panel { flex: none; overflow: visible; }
   .workbench .side > .materials-panel .materials,
   .workbench .side > .versions-panel .versions { overflow: visible; }
-  .workbench .editor > .canvas-wrap { flex: none; height: 70vh; }
+  .workbench .editor .canvas-wrap { flex: none; height: 70vh; }
 
   /* 首页：先干活，后介绍。老用户每次进来都要先划过一屏介绍才看到自己的图纸 */
   .home { display: flex; flex-direction: column; }
@@ -901,11 +904,17 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 
   .is-phone .canvas-bar { margin-bottom: var(--sp-2); }
   .is-phone .zoom small { display: none; }
-  .is-phone .editor > .canvas-wrap {
-    height: 36dvh;
+  .is-phone .editor .canvas-wrap {
+    height: calc(var(--app-h, 100vh) * 0.36);
     padding: var(--sp-1);
     box-shadow: 3px 3px 0 var(--ink);
   }
+  @supports (height: 100dvh) {
+    .is-phone .editor .canvas-wrap { height: 36dvh; }
+  }
+  /* 「当前颜色」四个字让位给「全屏」，色块和色号还在 */
+  .is-phone .current-color .label { display: none; }
+  .is-phone .zoom { gap: var(--sp-1); }
 
   .phone-tabs {
     flex: none;
@@ -949,6 +958,35 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 
 /* 拖动工具：手指拖画布、双指缩放，不画。画笔等工具仍然 touch-action:none，一拖就画 */
 .canvas-wrap.is-pan, .canvas-wrap.is-pan canvas { touch-action: pan-x pan-y; cursor: grab; }
+
+/* 触屏的复选框：44px 最小高度是给输入框的，套到复选框上就成了一根竖条压住文字。
+   点按热区交给整个 label（点文字也能勾），复选框本身保持方的。 */
+@media (pointer: coarse) {
+  /* label. 加一级权重：基础的 .field-inline 写在文件后面，同权重会把这里盖掉 */
+  label.field-inline { grid-template-columns: 24px auto 1fr; min-height: 44px; }
+  label.field-inline input[type="checkbox"] { min-height: 0; }
+}
+
+/* ══ 全屏预览 ═══════════════════════════════════════════════
+   画布和缩放条一起铺满视口，盖住顶栏和面板。平时 canvas-stage 不占盒子，
+   里面两个元素照旧是 .editor 的 flex 子项。 */
+.canvas-stage { display: contents; }
+.canvas-stage.is-full {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-2);
+  background: var(--board);
+}
+.workbench .canvas-stage.is-full .canvas-wrap {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  box-shadow: none;
+}
+.canvas-stage.is-full .canvas-bar { margin-bottom: var(--sp-2); }
 
 @media (max-width: 380px) {
   :root { --pitch: 18px; }
