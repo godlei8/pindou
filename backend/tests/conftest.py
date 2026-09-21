@@ -94,3 +94,16 @@ def invite_other(db):
     from app.models import InviteCode
     db.add(InviteCode(code="OTHER", max_uses=9))
     db.flush()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_ai_provider(monkeypatch):
+    """测试一律用假 provider。
+
+    否则 redraw 会读 providers.yaml + .env 里的真 key 去调百炼，每跑一次测试就扣一次钱
+    （测试事务回滚，库里还看不到记录）。个别测试自己再 monkeypatch 会覆盖这里。
+    """
+    from app.providers.fake import FakeProvider
+    from app.services import renders
+
+    monkeypatch.setattr(renders, "_provider_for", lambda name: FakeProvider())
