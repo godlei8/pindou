@@ -19,6 +19,9 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户不存在")
+    if user.is_disabled:
+        # 401 而不是 403：前端收到 401 会回登录页，停用的人不该继续停在工作台
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "账号已停用，请联系管理员")
     return user
 
 

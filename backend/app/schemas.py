@@ -29,6 +29,7 @@ class UserOut(_Base):
     ai_quota: int
     ai_used: int
     is_admin: bool
+    is_disabled: bool = False
 
 
 # ---------- projects & patterns ----------

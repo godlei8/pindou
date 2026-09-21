@@ -67,13 +67,14 @@ def create_app(run_startup: bool = True) -> FastAPI:
     )
     _install_error_handlers(app)
 
+    from app.api import admin as admin_api
     from app.api import auth as auth_api
     from app.api import jobs as jobs_api
     from app.api import meta as meta_api
     from app.api import patterns as patterns_api
     from app.api import projects as projects_api
 
-    for module in (auth_api, projects_api, patterns_api, jobs_api, meta_api):
+    for module in (auth_api, projects_api, patterns_api, jobs_api, meta_api, admin_api):
         app.include_router(module.router)
 
     @app.get("/api/health", tags=["meta"])
