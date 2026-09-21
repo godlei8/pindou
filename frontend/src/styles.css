@@ -54,7 +54,22 @@ body {
   background: var(--board);
   color: var(--ink);
   font-variant-numeric: tabular-nums;  /* 回退字体也要能对齐数字列 */
+  /* 满高外壳：锁死在视口高度。
+     用 min-height 不行——内容一高 body 就跟着长，等于没锁。
+     dvh 而不是 vh：移动端浏览器地址栏收起时 vh 会算多一截。 */
+  height: 100dvh;
+  overflow: hidden;
 }
+
+/* React 挂在 #root 上，真正的 flex 容器是它，不是 body */
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+#root > .topbar { flex: 0 0 auto; }
+/* flex-basis 必须是 0：auto 会把内容高度当基准，main 又会被撑大 */
+#root > main { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 
 /* 这个字体只有 400 一个字重。合成加粗会把 1px 笔画涂成 2px，糊掉。 */
 b, strong, h1, h2, h3, th { font-weight: 400; }
@@ -353,12 +368,52 @@ main { padding: var(--sp-6) var(--sp-4); }
 
 .workbench {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 320px;
+  grid-template-columns: 260px minmax(0, 1fr) 320px;
   gap: var(--sp-4);
-  align-items: start;
   padding: var(--sp-4);
+  height: 100%;
+  overflow: hidden;       /* 滚动交给各栏自己，页面本身不滚 */
 }
-.workbench > div { min-width: 0; }
+.workbench > * { min-width: 0; min-height: 0; }
+
+/* 整屏不滚。两侧用 flex 竖排，材料清单吃掉剩余高度、只让它自己滚——
+   这样「导出」永远在屏幕上，而不是被十几行色号顶出视口。
+   overflow-y:auto 只是兜底：视口矮到连面板本身都放不下时才会用上。 */
+.workbench .side {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  overflow-y: auto;
+  padding-right: var(--sp-2);   /* 给滚动条让位，别压住卡片投影 */
+}
+.workbench .side > * { flex: none; margin-bottom: 0; }
+
+.workbench .side > .materials-panel {
+  flex: 1 1 auto;
+  min-height: 120px;            /* 再挤也得露出几行 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workbench .side > .materials-panel .materials {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 原图缩略图不能顶到把下面的 AI 区推出屏幕 */
+.workbench .side .panel img { max-height: 200px; object-fit: contain; width: 100%; }
+
+/* 中栏：工具条、色板、画布条固定在上面，画布吃掉剩下的全部高度 */
+.workbench .editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.workbench .editor > .canvas-wrap { flex: 1 1 auto; min-height: 0; }
+
 .workbench .panel img { display: block; max-width: 100%; border: var(--bd) solid var(--ink); }
 
 .canvas-wrap {
@@ -369,11 +424,13 @@ main { padding: var(--sp-6) var(--sp-4); }
   overflow: auto;
   min-width: 0;
   touch-action: none;
+  /* safe：放大到超出容器时，居中不会把左上角裁掉 */
+  display: grid;
+  place-content: safe center;
 }
 canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-action: none; }
 
 .dirty {
-  margin-left: auto;
   align-self: center;
   padding: var(--sp-1) var(--sp-2);
   background: var(--warn);
@@ -449,7 +506,7 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
    底板是点阵，未熨烫的豆子是「环」不是方块，登录成功时熨在一起。 */
 
 .auth {
-  min-height: 100vh;
+  min-height: 100%;
   display: grid;
   place-items: center;
   padding: var(--sp-6) var(--sp-4);
@@ -544,7 +601,16 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 /* ══ 响应式 ═════════════════════════════════════════════════ */
 
 @media (max-width: 1100px) {
-  .workbench { grid-template-columns: minmax(0, 1fr); }
+  /* 窄屏排成一栏，高度交还给内容，页面正常滚动 */
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    overflow: visible;
+  }
+  .workbench .side, .workbench .editor { height: auto; overflow: visible; }
+  .workbench .side > .materials-panel { flex: none; overflow: visible; }
+  .workbench .side > .materials-panel .materials { overflow: visible; }
+  .workbench .editor > .canvas-wrap { flex: none; height: 70vh; }
 }
 
 @media (max-width: 380px) {
@@ -646,3 +712,118 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
   border-left: var(--sp-1) solid var(--info);
   color: var(--ink);
 }
+
+/* ══ 工具条分组 ═════════════════════════════════════════════ */
+
+.toolbar { align-items: center; }
+.toolbar-group { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+/* 工具和操作之间拉开距离并画一道竖线——它们是两类东西 */
+.toolbar-group + .toolbar-group {
+  margin-left: var(--sp-3);
+  padding-left: var(--sp-3);
+  border-left: var(--bd) solid var(--peg);
+}
+
+/* ══ 画布条：当前颜色 + 缩放 ════════════════════════════════ */
+
+.canvas-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  flex: none;
+}
+
+.current-color { display: inline-flex; align-items: center; gap: var(--sp-2); color: var(--ink-mute); }
+.current-color i {
+  width: 20px; height: 20px;
+  display: block;
+  border: var(--bd) solid var(--ink);
+}
+.current-color b { color: var(--ink); }
+.current-color .none { color: var(--ink-mute); }
+
+.zoom { display: inline-flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.zoom button {
+  padding: var(--sp-1) var(--sp-2);
+  min-width: 28px;
+  border-width: var(--bd);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.zoom button:hover:not(:disabled) {
+  transform: none;
+  box-shadow: 3px 3px 0 var(--ink);
+  background: var(--warn);
+}
+.zoom button:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+.zoom button:focus-visible { box-shadow: 3px 3px 0 var(--ink), var(--focus); }
+.zoom button:disabled { box-shadow: 3px 3px 0 var(--peg); }
+/* 「适应」按下态 = 当前就跟着窗口走 */
+.zoom button[aria-pressed="true"] { background: var(--ink); color: var(--board); }
+.zoom button[aria-pressed="true"]:hover { background: var(--ink); }
+.zoom small { white-space: nowrap; }
+
+/* ══ 材料清单合计 ═══════════════════════════════════════════ */
+
+.materials-total {
+  margin: 0 0 var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border-bottom: var(--bd) solid var(--ink);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ══ 滚动条 ═════════════════════════════════════════════════
+   默认滚动条是圆的、带渐变，跟这套风格格格不入。 */
+
+.workbench .side, .canvas-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink) var(--surface-sunk);
+}
+.workbench .side::-webkit-scrollbar, .canvas-wrap::-webkit-scrollbar { width: 12px; height: 12px; }
+.workbench .side::-webkit-scrollbar-track, .canvas-wrap::-webkit-scrollbar-track {
+  background: var(--surface-sunk);
+}
+.workbench .side::-webkit-scrollbar-thumb, .canvas-wrap::-webkit-scrollbar-thumb {
+  background: var(--ink);
+  border: 2px solid var(--surface-sunk);
+  border-radius: 0;
+}
+.workbench .side::-webkit-scrollbar-corner, .canvas-wrap::-webkit-scrollbar-corner {
+  background: var(--surface-sunk);
+}
+
+/* ══ 折叠区 ═════════════════════════════════════════════════ */
+
+.feedback { margin-top: var(--sp-3); }
+.feedback > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+  color: var(--ink-mute);
+}
+.feedback > summary::-webkit-details-marker { display: none; }
+/* 方块里的 + / −，像素风里不用三角形 */
+.feedback > summary::before {
+  content: "+";
+  width: 14px; height: 14px;
+  flex: none;
+  display: grid;
+  place-content: center;
+  border: var(--bd) solid var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+  line-height: 1;
+}
+.feedback[open] > summary::before { content: "−"; }
+.feedback > summary:focus-visible { outline: none; box-shadow: var(--focus); }
+.feedback > :not(summary) { margin-top: var(--sp-2); }
+.feedback input, .feedback select { width: 100%; }
+.feedback button { margin-top: var(--sp-2); }
+
+/* 工作台两侧的面板收紧一档：一屏要装下四个面板 */
+.workbench .side > .panel { padding: var(--sp-3); }
+.workbench .side > .panel > h2 { margin-bottom: var(--sp-2); }

@@ -371,6 +371,50 @@ canvas { display: block; image-rendering: pixelated; }
 - **网格线不要烧进主 canvas**，用独立的覆盖层，可整层开关、可跟随缩放换 `background-size`
 - `image-rendering` **做成可切换**：缩小看整体时 `auto` 更好看，放大看单颗豆时才 `pixelated`
 
+### 7.7 工作台是视口锁定布局
+
+**工作台占满一屏且整体不滚动**，只有两样东西允许自己滚：图纸特别大时的画布、
+色号特别多时的材料清单。其余内容必须一屏装下。
+
+```css
+body { height: 100dvh; overflow: hidden; }   /* 不能用 min-height */
+#root { height: 100%; display: flex; flex-direction: column; }
+#root > .topbar { flex: 0 0 auto; }
+#root > main    { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+```
+
+三个坑，都是实际踩过的：
+
+1. **`min-height: 100vh` 锁不住。** 内容一高 body 就跟着长，整页照样滚。必须 `height`。
+   用 `dvh` 不用 `vh`：移动端地址栏收起时 `vh` 会算多一截。
+2. **`flex-basis` 必须是 `0`。** 写 `flex: 1 1 auto` 时基准是内容高度，
+   `main` 会被内部面板撑大，等于没约束。
+3. **真正的 flex 容器是 `#root`，不是 `body`。** React 挂在 `#root` 上。
+
+侧栏用 flex 竖排，让"可以滚的那一个"吃掉剩余高度（`flex: 1 1 auto` + `min-height`），
+其余面板 `flex: none`。这样底部的面板永远在屏幕上，而不是被十几行色号顶出视口。
+
+### 7.8 量容器尺寸
+
+画布这类"按可用空间自适应"的元素，尺寸**必须量出来**，不能写死预算。两个必踩的坑：
+
+```ts
+// 对：量内容盒
+const cs = getComputedStyle(node);
+const w = node.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+
+// 错：getBoundingClientRect 是边框盒，把 border + padding 也算进去了，
+//     内容会大出一圈，逼出一根本不该有的滚动条
+```
+
+1. **量内容盒。** `clientWidth` 已排除 border 和滚动条，再扣掉 padding。
+2. **用回调 ref，不要 `useRef` + `[]` 依赖的 effect。**
+   目标元素常常不是一开始就在的（加载期走早退分支时压根没渲染），
+   `[]` 的 effect 只在挂载时跑一次，那时 `ref.current` 还是 null，
+   元素后来出现也没人去观察它——尺寸永远停在 0。见 `useElementSize`。
+
+留 2px 余量：正好卡在边界上时，滚动条一出一进会让尺寸来回抖。
+
 ---
 
 ## 8. 可访问性底线

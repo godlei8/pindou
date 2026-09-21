@@ -1,19 +1,22 @@
 import type { Buildability } from "../api/types";
+import { FeedbackForm } from "./FeedbackForm";
 import { ACTION_LABELS, ISSUE_LABELS } from "./labels";
 
 interface Props {
   buildability: Buildability | null;
   applying?: boolean;
   onApply(issueIndex: number): void;
+  onFeedback?(body: { kind: string; note: string }): void;
 }
 
-export function IssueList({ buildability, applying, onApply }: Props) {
+export function IssueList({ buildability, applying, onApply, onFeedback }: Props) {
   if (!buildability) {
     // 可拼性是附加环节：它失败了图纸照样能用，说清楚就行
     return (
       <section className="panel">
         <h2>可拼性</h2>
         <p className="empty">分析不可用，图纸仍可正常导出。</p>
+        {onFeedback && <FeedbackForm onFeedback={onFeedback} />}
       </section>
     );
   }
@@ -41,6 +44,7 @@ export function IssueList({ buildability, applying, onApply }: Props) {
           ))}
         </ul>
       )}
+      {onFeedback && <FeedbackForm onFeedback={onFeedback} />}
     </section>
   );
 }

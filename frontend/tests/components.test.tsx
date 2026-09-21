@@ -2,7 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 
-import { ExportBar } from "../src/components/ExportBar";
+import { ExportButtons } from "../src/components/ExportButtons";
+import { FeedbackForm } from "../src/components/FeedbackForm";
 import { MaterialList } from "../src/components/MaterialList";
 import { PalettePicker } from "../src/components/PalettePicker";
 import { PatternCanvas } from "../src/components/PatternCanvas";
@@ -130,18 +131,26 @@ describe("PatternCanvas", () => {
   });
 });
 
-describe("ExportBar", () => {
+describe("ExportButtons", () => {
   test("PNG / PDF 链接指向导出端点", () => {
-    render(<ExportBar patternId="pat1" onFeedback={() => {}} />);
+    render(<ExportButtons patternId="pat1" />);
     const png = screen.getByRole("link", { name: /PNG/ }) as HTMLAnchorElement;
     const pdf = screen.getByRole("link", { name: /PDF/ }) as HTMLAnchorElement;
     expect(png.getAttribute("href")).toContain("/api/patterns/pat1/export?format=png");
     expect(pdf.getAttribute("href")).toContain("format=pdf");
   });
+});
 
-  test("提交实拼反馈", async () => {
+describe("FeedbackForm", () => {
+  test("默认收起——拼完才用得上，不占设计阶段的屏幕", () => {
+    render(<FeedbackForm onFeedback={() => {}} />);
+    expect(screen.getByText("实拼反馈").closest("details")!.open).toBe(false);
+  });
+
+  test("展开后能提交实拼反馈", async () => {
     const onFeedback = vi.fn();
-    render(<ExportBar patternId="pat1" onFeedback={onFeedback} />);
+    render(<FeedbackForm onFeedback={onFeedback} />);
+    await userEvent.click(screen.getByText("实拼反馈"));
     await userEvent.selectOptions(screen.getByLabelText(/问题类型/), "断裂");
     await userEvent.type(screen.getByLabelText(/备注/), "发尾断了");
     await userEvent.click(screen.getByRole("button", { name: /提交反馈/ }));

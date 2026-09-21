@@ -156,3 +156,77 @@ describe("WorkbenchPage", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("项目不存在"));
   });
 });
+
+
+describe("画布缩放与当前颜色", () => {
+  beforeEach(() => vi.unstubAllGlobals());
+
+  const canvasWidth = (c: HTMLElement) =>
+    Number(c.querySelector("canvas")!.getAttribute("width"));
+
+  /** 图纸是在渲染后的 effect 里灌进编辑器的，在那之前画布宽度还是 1（0 格 + 1）。
+   *  量尺寸前必须等它真的有内容，否则测试会随时序抖。 */
+  const waitForGrid = (c: HTMLElement) =>
+    waitFor(() => expect(canvasWidth(c)).toBeGreaterThan(1));
+
+  test("默认跟随窗口自动适应", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    mount();
+    await waitFor(() => screen.getByRole("button", { name: "适应" }));
+    expect(screen.getByRole("button", { name: "适应" }).getAttribute("aria-pressed"))
+      .toBe("true");
+  });
+
+  test("缩小会让画布变小，并脱离自动适应", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    const { container } = mount();
+    await waitForGrid(container);
+    const before = canvasWidth(container);
+
+    await userEvent.click(screen.getByRole("button", { name: "缩小" }));
+
+    expect(canvasWidth(container)).toBeLessThan(before);
+    expect(screen.getByRole("button", { name: "适应" }).getAttribute("aria-pressed"))
+      .toBe("false");
+  });
+
+  test("点「适应」回到自动尺寸", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    const { container } = mount();
+    await waitForGrid(container);
+    const fitted = canvasWidth(container);
+
+    await userEvent.click(screen.getByRole("button", { name: "缩小" }));
+    await userEvent.click(screen.getByRole("button", { name: "适应" }));
+
+    expect(canvasWidth(container)).toBe(fitted);
+    expect(screen.getByRole("button", { name: "适应" }).getAttribute("aria-pressed"))
+      .toBe("true");
+  });
+
+  test("到最小档后「缩小」禁用，不会越界", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    const { container } = mount();
+    await waitForGrid(container);
+
+    for (let i = 0; i < 30; i++) {
+      const btn = screen.getByRole("button", { name: "缩小" });
+      if ((btn as HTMLButtonElement).disabled) break;
+      await userEvent.click(btn);
+    }
+    expect(screen.getByRole("button", { name: "缩小" })).toHaveProperty("disabled", true);
+    expect(canvasWidth(container)).toBeGreaterThan(0);
+  });
+
+  test("当前颜色跟着色板选择走", async () => {
+    vi.stubGlobal("fetch", routeFetch());
+    mount();
+    await waitFor(() => screen.getByText("未选"));
+
+    await userEvent.click(screen.getByRole("button", { name: "R10" }));
+    expect(screen.queryByText("未选")).toBeNull();
+    // 色板上的按钮是纯色块没有文字，画笔用的是哪个色号只能靠这里显示出来，
+    // 不该逼用户去找那圈黄边
+    expect(screen.getByText("R10")).toBeTruthy();
+  });
+});
