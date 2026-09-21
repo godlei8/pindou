@@ -1169,3 +1169,190 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 }
 
 .bg-note { margin: var(--sp-1) 0 0 calc(16px + var(--sp-2)); }
+
+/* ══ 管理后台 ════════════════════════════════════════════════
+   左边一列分区导航，右边一块面板。表格多、字段密，
+   所以这里允许 main 自己滚动（不属于"满屏不滚"的出图流程）。 */
+
+.topbar .admin-link {
+  padding: var(--sp-1) var(--sp-3);
+  border: var(--bd) solid var(--ink);
+  background: var(--surface-sunk);
+}
+.topbar .admin-link::before { background: var(--info); }
+.topbar .admin-link:hover { background: var(--warn); }
+
+.admin {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: var(--sp-6);
+  align-items: start;
+}
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  position: sticky;
+  top: 0;
+}
+.admin-nav h1 { font-size: 12px; line-height: 16px; color: var(--ink-mute); margin: 0 0 var(--sp-2); }
+.admin-nav a {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: var(--bd) solid var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+/* 每一项前面一颗豆：当前分区是实心红豆，其余是透明豆 */
+.admin-nav a::before {
+  content: "";
+  width: 8px; height: 8px;
+  flex: none;
+  border: var(--bd) solid var(--ink);
+  background: var(--peg);
+}
+.admin-nav a:hover { background: var(--warn); }
+.admin-nav a.active { background: var(--ink); color: var(--board); box-shadow: none; transform: translate(3px, 3px); }
+.admin-nav a.active::before { background: var(--bead-red); border-color: var(--board); }
+.admin-nav a:focus-visible { outline: none; box-shadow: var(--focus); }
+
+.admin-body {
+  background: var(--surface);
+  border: var(--bd-2) solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: var(--sp-4);
+  min-width: 0;
+}
+.admin-body > h2 { font-size: 24px; line-height: 32px; color: var(--ink); margin-bottom: var(--sp-4); }
+.admin-body h3 { font-size: 12px; font-weight: 400; margin: var(--sp-6) 0 var(--sp-2); color: var(--ink-mute); }
+.admin-meta { color: var(--ink-mute); margin: 0 0 var(--sp-3); }
+
+.admin-scroll { overflow-x: auto; }
+.admin-table { width: 100%; border-collapse: collapse; }
+.admin-table th, .admin-table td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: var(--bd) solid var(--peg);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.admin-table th { background: var(--surface-sunk); color: var(--ink-mute); border-bottom-color: var(--ink); }
+.admin-table .num { text-align: right; }
+.admin-table .clip { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.admin-table tr.dim td { color: var(--ink-mute); }
+.admin-table code, .admin-fresh code { font-family: inherit; letter-spacing: 1px; }
+
+button.small {
+  padding: 2px var(--sp-2);
+  border-width: var(--bd);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+button.small:hover:not(:disabled) { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--ink); }
+
+.status {
+  display: inline-block;
+  padding: 0 var(--sp-1);
+  border: var(--bd) solid currentColor;
+  margin-right: var(--sp-1);
+}
+.status-done, .status-active { color: var(--ink); background: var(--white); }
+.status-failed { color: var(--accent); }
+.status-expired, .status-used_up { color: var(--ink-mute); }
+.status-running, .status-pending { color: var(--info); }
+.admin-error {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--accent);
+}
+
+.tag {
+  display: inline-block;
+  padding: 0 var(--sp-1);
+  background: var(--ink);
+  color: var(--board);
+}
+
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-2);
+}
+.admin-stats div { border: var(--bd) solid var(--ink); padding: var(--sp-2) var(--sp-3); background: var(--board); }
+.admin-stats dt { color: var(--ink-mute); }
+.admin-stats dd { margin: 0; font-size: 24px; line-height: 32px; }
+.admin-stats dd.bad { color: var(--accent); }
+
+.admin-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.admin-form label { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.admin-form input { width: 72px; }
+.admin-fresh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  border: var(--bd) dashed var(--ink);
+  background: var(--board);
+}
+.admin-fresh p { margin: 0; flex-basis: 100%; }
+.admin-fresh code { font-size: 24px; line-height: 32px; word-break: break-all; }
+
+.admin-quota { display: inline-flex; gap: var(--sp-2); align-items: center; }
+.admin-quota input { width: 64px; padding: 2px var(--sp-2); }
+
+.admin-feedback { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
+.admin-feedback li {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: var(--bd) solid var(--peg);
+}
+.admin-feedback img {
+  width: 96px; height: 96px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  border: var(--bd) solid var(--ink);
+  background: var(--white);
+}
+.admin-feedback p { margin: 0 0 var(--sp-1); }
+.admin-feedback-head { display: flex; gap: var(--sp-2); align-items: center; }
+.admin-feedback-note { white-space: pre-wrap; }
+
+.admin-new { margin-bottom: var(--sp-4); }
+.admin-new summary { cursor: pointer; padding: var(--sp-2) 0; }
+.admin-preset {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border: var(--bd) solid var(--ink);
+  background: var(--board);
+}
+.admin-preset.dim { background: var(--surface-sunk); }
+.admin-preset-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
+.admin-preset-row label:not(.field-inline) { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.admin-preset-row input[type="number"] { width: 72px; }
+.admin-preset textarea { width: 100%; resize: vertical; }
+.admin-preset button { justify-self: start; }
+
+@media (max-width: 720px) {
+  .admin { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+  .admin-nav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .admin-nav h1 { flex-basis: 100%; }
+  .admin-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

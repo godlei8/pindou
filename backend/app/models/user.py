@@ -20,6 +20,9 @@ class User(Base, TimestampMixin):
     ai_used: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false",
                                            nullable=False)
+    #: 管理员停用的账号：登录被拒，已有的登录态也立即失效（每次请求都查库）
+    is_disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false",
+                                              nullable=False)
 
 
 class InviteCode(Base, TimestampMixin):

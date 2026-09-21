@@ -7,6 +7,7 @@ export interface User {
   ai_quota: number;
   ai_used: number;
   is_admin: boolean;
+  is_disabled?: boolean;
 }
 
 export interface PatternBrief {
@@ -134,4 +135,70 @@ export interface FaceHint {
   min_cells: number;
   too_small: boolean;
   suggested_long_side: number | null;
+}
+
+// ---------- 管理后台 ----------
+
+export interface AdminFeedback {
+  id: string;
+  kind: string;
+  note: string | null;
+  cells: number;
+  created_at: string;
+  username: string;
+  project_id: string;
+  project_name: string;
+  pattern_id: string;
+}
+
+export interface AdminRender {
+  id: string;
+  created_at: string;
+  username: string;
+  project_name: string;
+  preset: string | null;
+  provider: string;
+  model: string;
+  status: string;
+  cost: string | null;
+  error: string | null;
+}
+
+export interface AdminUsage {
+  total: { renders: number; done: number; failed: number; cost: string };
+  users: { username: string; ai_quota: number; ai_used: number; renders: number;
+           done: number; failed: number; cost: string }[];
+  recent: AdminRender[];
+}
+
+export type InviteState = "active" | "used_up" | "expired";
+
+export interface AdminInvite {
+  code: string;
+  max_uses: number;
+  used_count: number;
+  expires_at: string | null;
+  created_at: string;
+  state: InviteState;
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  ai_quota: number;
+  ai_used: number;
+  is_admin: boolean;
+  is_disabled: boolean;
+  created_at: string;
+  projects: number;
+}
+
+export interface AdminPreset {
+  id: string;
+  name: string;
+  prompt: string;
+  params: Record<string, unknown>;
+  version: number;
+  sort_order: number;
+  is_active: boolean;
 }

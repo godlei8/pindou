@@ -78,4 +78,6 @@ def authenticate(db: Session, username: str, password: str) -> User:
     user = db.scalar(select(User).where(User.username == username.strip()))
     if user is None or not verify_password(password, user.password_hash):
         raise AuthError("用户名或密码错误")
+    if user.is_disabled:
+        raise AuthError("账号已停用，请联系管理员")
     return user

@@ -1,8 +1,9 @@
-import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { MouseEvent, ReactNode } from "react";
 
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { WorkbenchNavProvider, useWorkbenchNav } from "./hooks/useWorkbenchNav";
+import { AdminPage } from "./pages/AdminPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { WorkbenchPage } from "./pages/WorkbenchPage";
@@ -26,7 +27,9 @@ function TopBar() {
   const { user, logout } = useAuth();
   const { nav } = useWorkbenchNav();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   if (!user) return null;
+  const inAdmin = pathname.startsWith("/admin");
 
   // 离开工作台的所有出口都要过一遍"有没有未保存改动"
   const leave = (then: () => void) => (e?: MouseEvent) => {
@@ -46,6 +49,10 @@ function TopBar() {
       ) : (
         <Link to="/" className="brand" onClick={goHome}>拼豆图纸生成</Link>
       )}
+      {/* 管理入口只给管理员；在后台里就不再显示自己 */}
+      {user.is_admin && !inAdmin && (
+        <Link to="/admin" className="admin-link" onClick={leave(() => navigate("/admin"))}>管理后台</Link>
+      )}
       <span className="quota">
         {user.username} · AI 额度 {user.ai_quota - user.ai_used}/{user.ai_quota}
       </span>
@@ -62,6 +69,7 @@ export function App() {
         <Routes>
           <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />
           <Route path="/" element={<Protected><ProjectsPage /></Protected>} />
+          <Route path="/admin/:section?" element={<Protected><AdminPage /></Protected>} />
           <Route path="/p/:projectId" element={<Protected><WorkbenchPage /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

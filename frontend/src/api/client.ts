@@ -1,4 +1,5 @@
 import type {
+  AdminFeedback, AdminInvite, AdminPreset, AdminUsage, AdminUser,
   EditCell, Job, PaletteColor, Pattern, PatternParams, Project, SizeSuggestion,
   StylePreset, User,
 } from "./types";
@@ -78,6 +79,14 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+function sendJson<T>(method: "POST" | "PATCH", path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export const api = {
   // auth
   me: () => request<User>("/auth/me"),
@@ -145,4 +154,25 @@ export const api = {
   listPaletteColors: (paletteId: string) =>
     request<PaletteColor[]>(`/palettes/${paletteId}/colors`),
   listStylePresets: () => request<StylePreset[]>("/style-presets"),
+
+  // 管理后台（只有管理员能调，其他人 403）
+  admin: {
+    feedback: () => request<AdminFeedback[]>("/admin/feedback"),
+    thumbUrl: (patternId: string) => `${BASE}/admin/patterns/${patternId}/thumb`,
+    aiUsage: () => request<AdminUsage>("/admin/ai-usage"),
+    invites: () => request<AdminInvite[]>("/admin/invites"),
+    createInvites: (body: { count: number; max_uses: number; expires_days: number | null }) =>
+      sendJson<AdminInvite[]>("POST", "/admin/invites", body),
+    revokeInvite: (code: string) =>
+      sendJson<AdminInvite>("POST", `/admin/invites/${encodeURIComponent(code)}/revoke`, {}),
+    users: () => request<AdminUser[]>("/admin/users"),
+    patchUser: (id: string, body: { quota_delta?: number; is_disabled?: boolean; is_admin?: boolean }) =>
+      sendJson<AdminUser>("PATCH", `/admin/users/${id}`, body),
+    presets: () => request<AdminPreset[]>("/admin/presets"),
+    createPreset: (body: { name: string; prompt: string; sort_order: number; is_active: boolean }) =>
+      sendJson<AdminPreset>("POST", "/admin/presets", body),
+    patchPreset: (id: string,
+                  body: Partial<Pick<AdminPreset, "name" | "prompt" | "sort_order" | "is_active">>) =>
+      sendJson<AdminPreset>("PATCH", `/admin/presets/${id}`, body),
+  },
 };
