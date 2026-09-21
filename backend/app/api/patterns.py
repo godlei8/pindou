@@ -36,6 +36,7 @@ def pattern_out(pat: Pattern, palette: CorePalette) -> dict:
         "palette_id": (pat.params or {}).get("palette_id", "mard"),
         "created_at": pat.created_at,
         "face_hint": psvc.face_hint(pat),
+        "fidelity": pat.fidelity,
     }
 
 

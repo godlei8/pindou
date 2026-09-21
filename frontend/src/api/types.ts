@@ -18,6 +18,8 @@ export interface PatternBrief {
   ai_render_id: string | null;
   created_at: string;
   score: number | null;
+  /** 还原度分数；还原度上线前的旧图纸为 null */
+  fidelity?: number | null;
   n_colors: number;
   /** 图纸尺寸（格）。首页卡片上写"58×44"，不能只写"58 格"。 */
   rows: number;
@@ -39,6 +41,15 @@ export interface Issue {
   delta_e: number | null;
   patch_cells: [number, number][];
   severity: number;
+}
+
+/** 还原度：图纸和原图有多像。第一优先的指标（可拼性在它之后）。 */
+export interface Fidelity {
+  score: number;
+  mean_delta_e: number;
+  worst_delta_e: number;
+  /** flat = 平涂插画按色块比；blur = 照片按远看比 */
+  method: "flat" | "blur";
 }
 
 export interface Buildability {
@@ -88,6 +99,7 @@ export interface Pattern {
   grid: Grid;
   color_stats: Record<string, number>;
   buildability: Buildability | null;
+  fidelity?: Fidelity | null;
   materials: Material[];
   palette_id: string;
   created_at: string;

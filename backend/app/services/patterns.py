@@ -129,10 +129,22 @@ def generate(db: Session, project: Project, params: Params,
         color_stats={str(k): int(v) for k, v in result.color_stats.items()},
         buildability=_analyze_report(result.grid, palette, params),
         faces=[f.to_dict() for f in result.faces],
+        fidelity=result.fidelity,
     )
     db.add(pat)
     db.flush()
     return pat
+
+
+def _fidelity_of(db: Session, parent: Pattern, grid: np.ndarray, palette: CorePalette,
+                 params: Params) -> dict | None:
+    """手改、补丁出来的子版本：对着同一张原图重新算还原度。算不了就空着，不挡住保存。"""
+    try:
+        project = db.get(Project, parent.project_id)
+        render = db.get(AiRender, parent.ai_render_id) if parent.ai_render_id else None
+        return pipeline.measure_fidelity(_source_bytes(project, render), params, grid, palette)
+    except Exception:
+        return None
 
 
 def _child(db: Session, parent: Pattern, grid: np.ndarray, palette: CorePalette,
@@ -140,6 +152,7 @@ def _child(db: Session, parent: Pattern, grid: np.ndarray, palette: CorePalette,
     child = Pattern(
         project_id=parent.project_id, ai_render_id=parent.ai_render_id, parent_id=parent.id,
         origin=origin, params=parent.params, grid=grid_to_db(grid), faces=parent.faces,
+        fidelity=_fidelity_of(db, parent, grid, palette, params),
         color_stats={str(k): int(v) for k, v in color_counts(grid).items()},
         buildability=_analyze_report(grid, palette, params), **extra)
     db.add(child)

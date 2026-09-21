@@ -13,6 +13,8 @@ function Protected({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <p className="loading">加载中…</p>;
   if (!user) return <Navigate to="/login" replace />;
+  // 管理员账号只管后台，不进用户端
+  if (user.is_admin) return <Navigate to="/admin" replace />;
   return <>{children}</>;
 }
 
@@ -20,7 +22,7 @@ function Protected({ children }: { children: ReactNode }) {
 function GuestOnly({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <p className="loading">加载中…</p>;
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={user.is_admin ? "/admin" : "/"} replace />;
   return <>{children}</>;
 }
 
@@ -48,7 +50,6 @@ function TopBar() {
   const { pathname } = useLocation();
   // 后台登录页是独立的一页，不挂用户站的顶栏
   if (!user || pathname === "/admin/login") return null;
-  const inAdmin = pathname.startsWith("/admin");
 
   // 离开工作台的所有出口都要过一遍"有没有未保存改动"
   const leave = (then: () => void) => (e?: MouseEvent) => {
@@ -68,18 +69,18 @@ function TopBar() {
           </button>
           <span className="crumb" title={nav.title}>{nav.title}</span>
         </>
+      ) : user.is_admin ? (
+        <span className="brand">馨豆 · 管理后台</span>
       ) : (
         <Link to="/" className="brand" onClick={goHome}>馨豆</Link>
       )}
-      {/* 管理入口只给管理员；在后台里就不再显示自己 */}
-      {user.is_admin && !inAdmin && (
-        <Link to="/admin" className="admin-link" aria-label="管理后台" onClick={leave(() => navigate("/admin"))}>
-          <span className="wide-only">管理</span>后台
-        </Link>
-      )}
       <span className="quota">
-        <span className="wide-only">{user.username} · </span>
-        AI <span className="wide-only">额度 </span>{user.ai_quota - user.ai_used}/{user.ai_quota}
+        {user.is_admin ? user.username : (
+          <>
+            <span className="wide-only">{user.username} · </span>
+            AI <span className="wide-only">额度 </span>{user.ai_quota - user.ai_used}/{user.ai_quota}
+          </>
+        )}
       </span>
       <button type="button" onClick={leave(() => void logout())}>退出</button>
     </header>

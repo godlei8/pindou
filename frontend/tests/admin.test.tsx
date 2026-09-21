@@ -53,11 +53,12 @@ describe("管理后台", () => {
     expect(screen.queryByRole("navigation", { name: "管理后台" })).toBeNull();
   });
 
-  test("管理员顶栏有入口，/admin 默认进实拼反馈", async () => {
-    stub();
+  test("管理员账号不进用户端：打开首页直接到后台，默认进实拼反馈", async () => {
+    const calls = stub();
     mountAt("/");
-    await userEvent.click(await screen.findByRole("link", { name: "管理后台" }));
     expect(await screen.findByRole("heading", { name: "实拼反馈" })).toBeTruthy();
+    expect(calls.some((c) => c.url.endsWith("/api/projects"))).toBe(false);   // 用户端的页面没加载过
+    expect(screen.queryByRole("link", { name: "馨豆" })).toBeNull();          // 顶栏也没有回用户端的入口
     expect(screen.getByText(/还没有人提交实拼反馈/)).toBeTruthy();
   });
 
@@ -77,7 +78,7 @@ describe("管理后台", () => {
   test("不能停用自己、撤销自己的管理员", async () => {
     stub();
     mountAt("/admin/users");
-    const me = (await screen.findByText("boss")).closest("tr")!;
+    const me = within(await screen.findByRole("table")).getByText("boss").closest("tr")!;
     expect((within(me).getByRole("button", { name: "停用" }) as HTMLButtonElement).disabled).toBe(true);
     expect((within(me).getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
   });

@@ -245,3 +245,13 @@ def test_disabled_admin_cannot_use_admin_login(admin_client, db):
     admin_client.user.is_disabled = True
     db.flush()
     assert _login_admin(admin_client).status_code == 400
+
+
+def test_admin_cannot_log_in_on_the_user_side(admin_client):
+    """管理员账号只能走后台登录页；在用户登录页输对密码也进不去。"""
+    admin_client.post("/api/auth/logout")
+    r = admin_client.post("/api/auth/login",
+                          json={"username": "fixture-user", "password": "pw12345678"})
+    assert r.status_code == 403 and "管理后台" in r.json()["detail"]
+    assert "set-cookie" not in r.headers
+    assert admin_client.get("/api/auth/me").status_code == 401

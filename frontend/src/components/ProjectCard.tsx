@@ -71,7 +71,8 @@ export function ProjectCard({ project, onRename }: Props) {
     <span className="meta">
       {latest && latest.cols > 0 && <>{latest.cols}×{latest.rows} 格 · </>}
       {project.patterns.length} 个版本
-      {latest?.score != null && <> · 可拼性 {latest.score}</>}
+      {latest?.fidelity != null ? <> · 还原度 {latest.fidelity}</>
+        : latest?.score != null && <> · 可拼性 {latest.score}</>}
       {" · "}{dateLabel(project.created_at)}
     </span>
   );

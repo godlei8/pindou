@@ -14,6 +14,13 @@ class CellImage:
     rgb: np.ndarray
     coverage: np.ndarray
     mask: np.ndarray
+    #: 平涂取色（core/flat.py）出来的：每格的颜色都是这几种墨之一（sRGB 0–1），没有过渡色。
+    #: 面积平均出来的（照片）是 None
+    inks: np.ndarray | None = None
+
+    @property
+    def flat(self) -> bool:
+        return self.inks is not None
 
 
 def grid_shape(h: int, w: int, long_side: int) -> tuple[int, int]:

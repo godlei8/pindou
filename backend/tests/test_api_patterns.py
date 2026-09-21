@@ -227,3 +227,32 @@ def test_replacing_something_already_gone_is_harmless(auth_client):
     b = _recompute(auth_client, pid, replaces=str(uuid.uuid4()))
     assert b["replaced_id"] is None
     assert _version_ids(auth_client, pid) == [b["id"]]
+
+
+# ---- 还原度 --------------------------------------------------------------------
+
+def _new_pattern(auth_client):
+    from pathlib import Path
+    img = (Path(__file__).parent / "fixtures" / "images" / "cartoon.png").read_bytes()
+    pid = auth_client.post("/api/projects", data={"name": "t"},
+                           files={"file": ("a.png", img, "image/png")}).json()["id"]
+    pat = auth_client.post(f"/api/projects/{pid}/patterns", json={"params": {}}).json()
+    return pid, pat
+
+
+def test_pattern_reports_fidelity(auth_client):
+    pid, pat = _new_pattern(auth_client)
+    assert 0 < pat["fidelity"]["score"] <= 100
+    brief = auth_client.get(f"/api/projects/{pid}").json()["patterns"][0]
+    assert brief["fidelity"] == pat["fidelity"]["score"]
+
+
+def test_editing_recomputes_fidelity_against_the_same_source(auth_client):
+    """手改把一大片颜色涂错，还原度要跟着掉——不是照抄父版本的分。"""
+    _, pat = _new_pattern(auth_client)
+    rows, cols = len(pat["grid"]), len(pat["grid"][0])
+    wrong = next(m["index"] for m in pat["materials"][::-1])
+    edits = [{"cell": [r, c], "to": wrong} for r in range(rows // 3, 2 * rows // 3)
+             for c in range(cols // 3, 2 * cols // 3)]
+    child = auth_client.post(f"/api/patterns/{pat['id']}/edits", json={"edits": edits}).json()
+    assert child["fidelity"]["score"] < pat["fidelity"]["score"] - 3

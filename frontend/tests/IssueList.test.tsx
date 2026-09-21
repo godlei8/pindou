@@ -56,3 +56,17 @@ test("applying 时按钮禁用防重复提交", () => {
     expect((b as HTMLButtonElement).disabled).toBe(true);
   }
 });
+
+test("还原度排在可拼性前面", () => {
+  render(<IssueList buildability={B} onApply={() => {}}
+                    fidelity={{ score: 84.8, mean_delta_e: 2.1, worst_delta_e: 13, method: "flat" }} />);
+  const heads = screen.getAllByRole("heading").map((h) => h.textContent);
+  expect(heads.indexOf("还原度")).toBeLessThan(heads.indexOf("可拼性"));
+  expect(screen.getByText("84.8")).toBeTruthy();
+  expect(screen.getByText(/按色块比/)).toBeTruthy();
+});
+
+test("旧图纸没有还原度：只显示可拼性，不出空的还原度块", () => {
+  render(<IssueList buildability={B} onApply={() => {}} fidelity={null} />);
+  expect(screen.queryByRole("heading", { name: "还原度" })).toBeNull();
+});

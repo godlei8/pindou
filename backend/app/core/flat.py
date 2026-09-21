@@ -21,7 +21,7 @@ from app.core.downsample import CellImage
 #: 一种颜色的"实心"像素（周围 8 格都是它自己）要有这么多才算一种墨。
 #: 数实心像素而不是总像素：抗锯齿过渡色几乎不会自己连成实心的一片，
 #: 所以门槛可以放得很低——小小的草莓籽、眼睛高光也能认出来。
-MIN_INK_INTERIOR = 0.0003
+MIN_INK_INTERIOR = 0.0001
 MIN_INK_INTERIOR_PX = 12
 #: 两种墨至少差这么多（OKLab）；更近的当作同一种墨的轻微变化
 INK_SEPARATION = 0.05
@@ -30,10 +30,15 @@ INK_TOLERANCE = 0.04
 #: 这么多像素都是某种墨，才算平涂插画
 MIN_FLAT_SHARE = 0.9
 MAX_INKS = 24
-#: 最深的那种墨（描边）占到一格的这么多就用它，不必过半。
-#: 描边比格子窄，按"谁多用谁"描边会断成一截一截；拼豆图纸里描边就该是连续的一颗宽。
-#: 0.3 是在四张样图 × 40/58/80 格上扫出来的：断口最少，可拼性分没有一处下降。
+#: 描边（最深的那种墨）按"先多收、再削薄"取格（见 _line_cells）：
+#: 占一格面积 LINE_WEAK 以上的都先算候选；候选连成的一片里至少有一格占到 LINE_SHARE 才留
+#: （滤掉零星的深色噪点）；然后把不过半、去掉也不会让线断开的格子按占比从小到大削掉。
+#: 结果：线是连续的一颗宽，闭合的轮廓一定闭合；眼睛这类实心深色块不会被撑胖。
+#:
+#: 之前的做法是"占三成就算描边"：线正好骑在两格中间、两边各两成时两格都不算，
+#: 轮廓就断了，去掉背景后填充色直接挨着空白（猫样图 58 格：7 处）。
 LINE_SHARE = 0.3
+LINE_WEAK = 0.1
 #: 只有真的是"深色线"才这样照顾（OKLab 亮度）；没有描边的浅色插画不受影响
 LINE_MAX_L = 0.45
 #: 认墨时把图缩到这么大（最近邻，不产生新颜色）：4000² 的照片没必要逐像素看
@@ -157,10 +162,41 @@ MAX_FEATURE_CELLS = 2.0
 _PX_PER_CELL = 12
 
 
+def _c8(nb: np.ndarray) -> int:
+    """3×3 邻域（中心不算）的 8-连通数（Yokoi）：1 = 去掉中心不改变连通性；
+    0 = 内部点或孤立点；≥2 = 去掉会把线断开。"""
+    x = [nb[1, 2], nb[0, 2], nb[0, 1], nb[0, 0], nb[1, 0], nb[2, 0], nb[2, 1], nb[2, 2]]
+    inv = [1 - int(v) for v in x]
+    return sum(inv[k] - inv[k] * inv[(k + 1) % 8] * inv[(k + 2) % 8] for k in (0, 2, 4, 6))
+
+
+def _line_cells(share: np.ndarray) -> np.ndarray:
+    """share: (rows, cols) 每格里描边墨占整格面积的比例。返回哪些格子算描边。"""
+    from scipy import ndimage
+    cand = share >= LINE_WEAK
+    comp, n = ndimage.label(cand, structure=np.ones((3, 3), int))
+    if n == 0:
+        return cand
+    peak = ndimage.maximum(share, comp, index=np.arange(1, n + 1))
+    keep = np.zeros(n + 1, dtype=bool)
+    keep[1:] = peak >= LINE_SHARE - 1e-9
+    line = keep[comp]
+
+    rows, cols = share.shape
+    padded = np.pad(line, 1)
+    weak = np.argwhere(line & (share < 0.5))
+    for r, c in weak[np.argsort(share[weak[:, 0], weak[:, 1]], kind="stable")]:
+        nb = padded[r:r + 3, c:c + 3]
+        # 线头（只有一个邻居）不削：不然细线会从头被一格一格吃光
+        if nb.sum() - 1 >= 2 and _c8(nb) == 1:
+            padded[r + 1, c + 1] = False
+    return padded[1:-1, 1:-1]
+
+
 def downsample_inks(rgba: np.ndarray, rows: int, cols: int, inks: np.ndarray,
                     coverage: np.ndarray) -> CellImage:
-    """每格取占像素最多的那种墨（深色描边占三成就算它；小色块至少留一格）。
-    coverage 沿用面积平均算出来的（决定哪些格要填豆）。"""
+    """每格取占像素最多的那种墨；深色描边单独取格（_line_cells）；小色块至少留一格。
+    coverage 沿用面积平均算出来的。"""
     import cv2
     from scipy import ndimage
 
@@ -175,10 +211,11 @@ def downsample_inks(rgba: np.ndarray, rows: int, cols: int, inks: np.ndarray,
     ok_inks = srgb_to_oklab(inks.astype(np.float64))
     # 每个像素归到最近的墨：抗锯齿过渡色归到它更像的那一边
     label = np.empty((h, w), dtype=np.int16)
+    solid = np.empty((h, w), dtype=bool)                # 颜色确实就是那种墨，不是抗锯齿过渡色
     for y0 in range(0, h, 128):
-        blk = ok[y0:y0 + 128]
-        label[y0:y0 + 128] = np.linalg.norm(
-            blk[..., None, :] - ok_inks[None, None], axis=-1).argmin(-1)
+        d = np.linalg.norm(ok[y0:y0 + 128][..., None, :] - ok_inks[None, None], axis=-1)
+        label[y0:y0 + 128] = d.argmin(-1)
+        solid[y0:y0 + 128] = d.min(-1) <= INK_TOLERANCE
     label[rgba[..., 3] < 0.5] = -1                      # 去掉的背景不参与投票
 
     ys = np.minimum((np.arange(h) * rows) // h, rows - 1)
@@ -187,20 +224,30 @@ def downsample_inks(rgba: np.ndarray, rows: int, cols: int, inks: np.ndarray,
     k = len(inks)
     votes = np.zeros((rows * cols, k + 1), dtype=np.int64)
     np.add.at(votes, (cell.ravel(), label.ravel() + 1), 1)
-    counts = votes[:, 1:]
-    winner = counts.argmax(1)
+    transparent, counts = votes[:, 0], votes[:, 1:].copy()
+    area = np.maximum(votes.sum(1), 1)
+
     darkest = int(np.argmin(ok_inks[:, 0]))
     line = np.zeros(rows * cols, dtype=bool)
     if ok_inks[darkest, 0] < LINE_MAX_L:
-        opaque = np.maximum(counts.sum(1), 1)
-        line = counts[:, darkest] >= LINE_SHARE * opaque - 1e-9
-        winner[line] = darkest
+        line = _line_cells((counts[:, darkest] / area).reshape(rows, cols)).ravel()
+        counts[:, darkest] = 0                          # 其余格子在剩下的墨里比多少
+    winner = counts.argmax(1)
+    # 填豆还是留空：描边一定填；其余看"颜色"和"透明"谁多。没有描边墨的格子，这就是覆盖率过半
+    mask = line | ((counts.sum(1) > 0) & (counts.sum(1) >= transparent))
+    winner[line] = darkest
 
-    # 小色块跨在几格的交界上，每格都不过半，按"谁多用谁"会整块消失。
-    # 面积够大的色块如果一格都没分到，就把它占得最多的那格给它（描边的格子不抢）。
+    # 小色块跨在几格的交界上，每格都不过半，按"谁多用谁"会整块消失（草莓籽、眼睛高光）。
+    # 面积够大的色块如果一格都没分到，就把它占得最多的那格给它。
+    # 描边的格子一般不抢——除非它在实心深色块里面、去掉不会让线断开（眼睛里的高光就是这样）。
     cell_px = h * w / (rows * cols)
+    line2d = np.pad(line.reshape(rows, cols), 1)
     for ink in range(k):
-        comp, n = ndimage.label(label == ink)
+        if ink == darkest and line.any():
+            continue
+        # 只认实打实是这种墨的像素：去背景后描边外面残留的一圈抗锯齿光晕会被归到某种浅色墨，
+        # 它又细又长、面积正好像个"小色块"，会在轮廓外面凭空多出一颗豆（蘑菇样图 80 格）
+        comp, n = ndimage.label((label == ink) & solid)
         if n == 0:
             continue
         sizes = np.bincount(comp.ravel())
@@ -209,12 +256,36 @@ def downsample_inks(rgba: np.ndarray, rows: int, cols: int, inks: np.ndarray,
                                   <= MAX_FEATURE_CELLS * cell_px):
                 continue
             cells = cell[sl][comp[sl] == cid]
-            if (winner[cells] == ink).any():
-                continue
             ids, c = np.unique(cells, return_counts=True)
-            free = ~line[ids]
-            if free.any():
-                winner[ids[free][c[free].argmax()]] = ink
+            if (mask[ids] & (winner[ids] == ink)).any():
+                continue
+            for i in ids[np.argsort(-c, kind="stable")]:
+                r, cc = divmod(int(i), cols)
+                nb = line2d[r:r + 3, cc:cc + 3]
+                if line[i] and (nb.sum() - 1 < 2 or _c8(nb) > 1):
+                    continue                            # 细线的一环、线头、孤立的深色点：不能抢
+                winner[i], mask[i], line[i] = ink, True, False
+                line2d[r + 1, cc + 1] = False
+                break
+
+    # 保险：填充色上下左右直接挨着空白、而原图那里其实有描边——两格里描边多的那格补成描边
+    if line.any():
+        share = votes[:, 1 + darkest] / area
+        m2, l2, s2 = mask.reshape(rows, cols), line.reshape(rows, cols), share.reshape(rows, cols)
+        w2 = winner.reshape(rows, cols)
+        for dr, dc in ((0, 1), (1, 0)):
+            a = (slice(0, rows - dr), slice(0, cols - dc))
+            b = (slice(dr, rows), slice(dc, cols))
+            for fill, empty in ((a, b), (b, a)):
+                bad = m2[fill] & ~l2[fill] & ~m2[empty] & (np.maximum(s2[fill], s2[empty]) >= 0.03)
+                if not bad.any():
+                    continue
+                use_fill = s2[fill] >= s2[empty]
+                for side, pick in ((fill, bad & use_fill), (empty, bad & ~use_fill)):
+                    m2[side][pick] = True
+                    l2[side][pick] = True
+                    w2[side][pick] = darkest
 
     rgb = inks[winner].reshape(rows, cols, 3).astype(np.float32)
-    return CellImage(rgb=rgb, coverage=coverage, mask=coverage >= 0.5)
+    return CellImage(rgb=rgb, coverage=coverage, mask=mask.reshape(rows, cols),
+                     inks=inks[np.unique(winner[mask])])

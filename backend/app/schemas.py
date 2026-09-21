@@ -41,6 +41,7 @@ class PatternBrief(_Base):
     ai_render_id: uuid.UUID | None = None
     created_at: datetime
     score: float | None = None
+    fidelity: float | None = None
     n_colors: int = 0
     rows: int = 0
     cols: int = 0

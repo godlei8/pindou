@@ -34,6 +34,9 @@ def register_endpoint(body: RegisterIn, response: Response,
 @router.post("/login", response_model=UserOut)
 def login_endpoint(body: LoginIn, response: Response, db: Session = Depends(get_db)) -> User:
     user = authenticate(db, body.username, body.password)
+    if user.is_admin:
+        # 管理员账号只管后台，不在用户端出图：两边入口彻底分开。不发会话
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员账号请从管理后台登录")
     _set_cookie(response, user.id)
     return user
 

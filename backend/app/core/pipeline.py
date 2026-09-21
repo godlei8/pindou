@@ -3,7 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from app.core import background, detect, downsample, face, flat, image_io
+from app.core import background, detect, downsample, face, fidelity, flat, image_io
 from app.core.assign import assign_labels
 from app.core.buildability import analyze
 from app.core.color import pairwise_delta_e, srgb_to_lab, srgb_to_oklab
@@ -37,14 +37,44 @@ def _downsample(rgba: np.ndarray, params: Params):
     return cells, "image"
 
 
-def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
-    palette = palette or Palette.load(params.palette_id)
+def _flat_palette(cells, palette: Palette, max_colors: int) -> np.ndarray | None:
+    """平涂插画：原图有哪几种颜色是知道的，每种直接配色卡里最接近的色号（ΔE2000）。
+    k-medoids 会把两种相近的颜色并成一种（猫样图：腮红和鼻子两种粉并成 F9，腮红色差 9.5，
+    而色卡里有 6.7 的 F14）。颜色种数超过用户设的上限时才退回 k-medoids 去取舍。"""
+    if cells.inks is None or len(cells.inks) == 0:
+        return None
+    de = pairwise_delta_e(srgb_to_lab(cells.inks.astype(np.float64)), palette.lab)
+    if palette.clear_index is not None:
+        de[:, palette.clear_index] = np.inf              # 透明豆不是颜色
+    working = np.unique(de.argmin(1))
+    return working if len(working) <= max_colors else None
+
+
+def _prepare(image, params: Params) -> np.ndarray:
+    """读图 + 去背景：出图和算还原度看的是同一张图。"""
     rgba = _load(image)
     if params.background_seed is not None:
-        rgba = background.remove_background(rgba, params.background_seed, params.background_tolerance)
-    elif params.remove_background:
+        return background.remove_background(rgba, params.background_seed,
+                                            params.background_tolerance)
+    if params.remove_background:
         # 边缘一圈是纯色时，把和边缘连通的那片背景去掉、不填豆；照片边缘不统一，自动跳过
         rgba, _ = background.remove_border_background(rgba, params.background_tolerance)
+    return rgba
+
+
+def measure_fidelity(image, params: Params, grid: np.ndarray, palette: Palette) -> dict | None:
+    """给一张已有的图纸（比如手改过的）重新算还原度。算不了返回 None，不拖垮别的流程。"""
+    try:
+        rgba = _prepare(image, params)
+        inks = None if detect.detect_pixel_grid(rgba) is not None else flat.detect_inks(rgba)
+        return fidelity.measure(rgba, grid, palette.rgb, inks)
+    except Exception:
+        return None
+
+
+def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
+    palette = palette or Palette.load(params.palette_id)
+    rgba = _prepare(image, params)
 
     cells, kind = _downsample(rgba, params)
     rows, cols = cells.mask.shape
@@ -54,7 +84,9 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
 
     lab = _cell_lab(cells.rgb)
     ok = srgb_to_oklab(cells.rgb)
-    working = select_palette(ok[cells.mask], palette.oklab, k=params.max_colors)
+    working = _flat_palette(cells, palette, params.max_colors)
+    if working is None:
+        working = select_palette(ok[cells.mask], palette.oklab, k=params.max_colors)
     # 给嘴唇这类"小而显眼"、被 k-medoids 漏掉的颜色补名额（不突破 max_colors）
     working, rescued = rescue_salient_colors(ok, cells.mask, palette.oklab, working,
                                              max_colors=params.max_colors)
@@ -82,14 +114,22 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
         protected_colors.add(palette.clear_index)
     # 补进来的特征色往往只有几颗豆，低于小色号阈值也不能合并掉——那正是人眼最先看的地方
     protected_colors.update(rescued)
+    if cells.flat:
+        # 平涂插画：图纸上每种颜色都是原图真有的（没有过渡色可并）。只有两颗豆的眼睛高光
+        # 并掉就是少了高光——还原度优先，不合并
+        protected_colors.update(int(c) for c in np.unique(grid[cells.mask]))
     grid, _ = merge_small_colors(grid, palette.lab, params.small_color_threshold,
                                  protected=protected_colors)
 
-    return _finish(grid, cells.rgb, params, palette, kind, faces)
+    try:                     # 还原度是附加环节，失败不能拖垮出图
+        fid = fidelity.measure(rgba, grid, palette.rgb, cells.inks)
+    except Exception:
+        fid = None
+    return _finish(grid, cells.rgb, params, palette, kind, faces, fid)
 
 
 def _finish(grid, cell_rgb, params: Params, palette: Palette, kind: str,
-            faces: list | None = None) -> PatternResult:
+            faces: list | None = None, fid: dict | None = None) -> PatternResult:
     counts = color_counts(grid)
     try:
         report = attach_patches(
@@ -101,7 +141,8 @@ def _finish(grid, cell_rgb, params: Params, palette: Palette, kind: str,
         report = None
     working = [c for c, _ in sorted(counts.items(), key=lambda kv: -kv[1])]
     return PatternResult(grid=grid, working_palette=working, color_stats=counts, report=report,
-                         params=params, input_kind=kind, cell_rgb=cell_rgb, faces=faces or [])
+                         params=params, input_kind=kind, cell_rgb=cell_rgb, faces=faces or [],
+                         fidelity=fid)
 
 
 def apply_edits(result: PatternResult, edits: list[tuple[int, int, int]],

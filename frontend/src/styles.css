@@ -1526,3 +1526,10 @@ button.small:hover:not(:disabled) { transform: translate(1px, 1px); box-shadow: 
 .admin-links { list-style: none; margin: 0; padding: 0; flex-basis: 100%; }
 .admin-links code { font-size: 12px; line-height: 20px; word-break: break-all; }
 .admin-actions { display: flex; gap: var(--sp-2); }
+
+/* 还原度在上、字大；可拼性在下、字小一号——优先级就是这个顺序 */
+.fidelity { margin-bottom: var(--sp-4); padding-bottom: var(--sp-3); border-bottom: var(--bd) solid var(--peg); }
+.fidelity h2 { display: flex; align-items: center; gap: var(--sp-2); color: var(--ink); }
+.fidelity h2::before { content: ""; width: 8px; height: 8px; flex: none; background: var(--info); border: var(--bd) solid var(--ink); }
+.fidelity + h2 { display: flex; align-items: center; gap: var(--sp-2); color: var(--ink); }
+.score.score-second { font-size: 24px; line-height: 32px; }

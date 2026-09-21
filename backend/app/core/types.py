@@ -66,6 +66,7 @@ class PatternResult:
     input_kind: str                     # "image" | "pixel_art"
     cell_rgb: np.ndarray | None = None  # (rows, cols, 3) 下采样后的 sRGB 0–1，供调试/预览
     faces: list = field(default_factory=list)   # 检测到的人脸（core.face.Face），用来提示脸太小
+    fidelity: dict | None = None        # 还原度（core.fidelity.measure），第一优先的指标
 
     def grid_as_list(self) -> list[list[int | None]]:
         return [[None if v == EMPTY else int(v) for v in row] for row in self.grid]

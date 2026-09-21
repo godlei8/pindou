@@ -73,6 +73,8 @@ class Pattern(Base, TimestampMixin):
     manual_edits: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     #: 出图时检测到的人脸（归一化坐标）。脸太小时提示调大格数；子版本沿用父版本的。
     faces: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    #: 还原度（core.fidelity）：{"score", "mean_delta_e", "worst_delta_e", "method"}。旧图纸为空
+    fidelity: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class Feedback(Base, TimestampMixin):

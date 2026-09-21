@@ -43,11 +43,12 @@ export function VersionList({ versions, currentId, disabled, onSelect }: Props) 
                         aria-label={`第 ${versions.length - i} 版，`
                           + `${v.ai_render_id ? "基于 AI 图" : "基于原图"}，`
                           + `${ORIGIN_LABELS[v.origin] ?? v.origin}，`
-                          + `可拼性 ${v.score ?? "未知"}，${v.n_colors} 色`
+                          + `还原度 ${v.fidelity ?? "未知"}，可拼性 ${v.score ?? "未知"}，${v.n_colors} 色`
                           + (current ? "，当前版本" : "")}>
                   {/* 列宽有限（左栏 260px），生成/手改/修复 只进 aria-label 和 title：
                       挑版本时先看的是评分和来源，不是它怎么来的 */}
-                  <span className="score">{v.score == null ? "—" : v.score}</span>
+                  {/* 主数字是还原度（第一优先）；旧图纸没有还原度，退回显示可拼性 */}
+                  <span className="score">{v.fidelity ?? v.score ?? "—"}</span>
                   <span className="source">{v.ai_render_id ? "AI 图" : "原图"}</span>
                   <span className="colors">{v.n_colors} 色</span>
                   <span className="time">{current ? "当前" : timeLabel(v.created_at)}</span>

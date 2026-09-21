@@ -234,7 +234,8 @@ export function WorkbenchPage() {
                   : null} />
   );
   const issues = (
-    <IssueList buildability={p.pattern?.buildability ?? null} applying={p.busy}
+    <IssueList buildability={p.pattern?.buildability ?? null}
+               fidelity={p.pattern?.fidelity ?? null} applying={p.busy}
                onApply={(i) => void p.applyPatch(i)}
                onFeedback={p.pattern
                  ? ({ kind, note }) => void p.sendFeedback(kind, note, [])
