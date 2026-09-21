@@ -1138,3 +1138,16 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 /* 尺寸预设：选中的那个要看得出来 */
 .sizes button[aria-pressed="true"] { background: var(--ink); color: var(--board); }
 .sizes button[aria-pressed="true"]:hover { background: var(--ink); }
+
+/* ══ 尺寸读数 ═══════════════════════════════════════════════
+   填的是"长边格数"，另一边按原图比例算。把算出来的精确结果亮出来。 */
+.size-readout {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-sunk);
+  border: var(--bd) solid var(--peg);
+  font-variant-numeric: tabular-nums;
+}
+.size-readout span { color: var(--ink-mute); }

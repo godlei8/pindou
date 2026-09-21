@@ -1,13 +1,16 @@
 import type { PatternParams, SizeSuggestion } from "../api/types";
+import { BEAD_MM, gridText, physicalText } from "../lib/size";
 
 interface Props {
   params: PatternParams;
   sizes: SizeSuggestion[];
+  /** 当前图纸的实际尺寸（格）。还没出图时为 null。 */
+  current: { rows: number; cols: number } | null;
   disabled?: boolean;
   onChange(next: PatternParams): void;
 }
 
-export function ParamPanel({ params, sizes, disabled, onChange }: Props) {
+export function ParamPanel({ params, sizes, current, disabled, onChange }: Props) {
   const set = <K extends keyof PatternParams>(k: K, v: PatternParams[K]) =>
     onChange({ ...params, [k]: v });
 
@@ -32,13 +35,23 @@ export function ParamPanel({ params, sizes, disabled, onChange }: Props) {
         </div>
       </div>
 
+      {/* 精确尺寸：填的是"长边格数"，另一边按原图比例算出来。原来只能出图后自己去数。 */}
+      {current && (
+        <p className="size-readout" aria-live="polite">
+          <b>{gridText(current.rows, current.cols)}</b>
+          <span>实物 {physicalText(current.rows, current.cols)}（按 {BEAD_MM} mm 豆）</span>
+        </p>
+      )}
+
       {sizes.length > 0 && (
         <div className="sizes">
           {sizes.map((s) => (
             <button key={s.long_side} type="button" disabled={disabled}
                     aria-pressed={params.grid_long_side === s.long_side}
+                    aria-label={`${gridText(s.rows, s.cols)}，实物 ${physicalText(s.rows, s.cols)}`}
+                    title={`实物 ${physicalText(s.rows, s.cols)}`}
                     onClick={() => set("grid_long_side", s.long_side)}>
-              {s.long_side} 格
+              {s.cols}×{s.rows}
             </button>
           ))}
         </div>

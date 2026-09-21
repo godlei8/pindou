@@ -57,6 +57,10 @@ def test_suggest_sizes(auth_client):
     body = r.json()
     assert [x["long_side"] for x in body] == [30, 40, 60]
     assert body[0]["detail_loss"] >= body[-1]["detail_loss"]
+    # 另一边也给出来：按钮要写"40×30"而不是只写"40 格"
+    for x in body:
+        assert max(x["rows"], x["cols"]) == x["long_side"]
+        assert x["rows"] > 0 and x["cols"] > 0
 
 
 def test_generate_without_ai_enqueues_job(auth_client):
@@ -187,3 +191,13 @@ def test_cannot_rename_other_users_project(auth_client, client, invite_other):
     client.post("/api/auth/register", json={"username": "intruder3", "password": "pw12345678",
                                             "invite_code": "OTHER"})
     assert client.patch(f"/api/projects/{pid}", json={"name": "偷改"}).status_code == 404
+
+
+
+def test_brief_carries_the_pattern_size(auth_client):
+    pid = _upload(auth_client).json()["id"]
+    pat = auth_client.post(f"/api/projects/{pid}/patterns",
+                           json={"params": {"grid_long_side": 24}}).json()
+    brief = auth_client.get(f"/api/projects/{pid}").json()["patterns"][0]
+    assert (brief["rows"], brief["cols"]) == (len(pat["grid"]), len(pat["grid"][0]))
+    assert max(brief["rows"], brief["cols"]) == 24

@@ -80,7 +80,7 @@ def render_pages(grid: np.ndarray, palette: Palette, options: PdfOptions | None 
     # 清单页：色块做成和实物豆一样大（bead_mm），字号按打印出来约 3.5mm 算，铺满页宽
     legend = render_legend(materials(grid, palette), palette,
                            swatch_px=_mm(o.bead_mm, o.dpi), font_px=_mm(3.5, o.dpi),
-                           width=W - 2 * margin)
+                           width=W - 2 * margin, size=(rows, cols, o.bead_mm))
     lp = Image.new("RGB", (W, H), (255, 255, 255))
     lp.paste(legend, (margin, margin))
     pages.append(lp)

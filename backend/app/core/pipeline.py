@@ -109,5 +109,6 @@ def suggest_sizes(image, base: int) -> list[dict]:
         cells = downsample.downsample_area(rgba, rows, cols, denoise=False)
         up = cv2.resize(cells.rgb, (w, h), interpolation=cv2.INTER_NEAREST)
         loss = float(np.mean((srgb_to_oklab(up) - ok_full) ** 2))
-        out.append({"long_side": n, "detail_loss": round(loss, 6)})
+        # 行列一并给出：按钮上只写"58 格"看不出另一边多少，得标成"58×44"
+        out.append({"long_side": n, "rows": rows, "cols": cols, "detail_loss": round(loss, 6)})
     return out

@@ -179,7 +179,10 @@ export function WorkbenchPage() {
       </div>
 
       <div className="side">
-        <ParamPanel params={p.params} sizes={p.sizes} disabled={p.busy} onChange={changeParams} />
+        <ParamPanel params={p.params} sizes={p.sizes} disabled={p.busy} onChange={changeParams}
+                    current={p.pattern && p.pattern.grid.length > 0
+                      ? { rows: p.pattern.grid.length, cols: p.pattern.grid[0].length }
+                      : null} />
         <IssueList buildability={p.pattern?.buildability ?? null} applying={p.busy}
                    onApply={(i) => void p.applyPatch(i)}
                    onFeedback={p.pattern

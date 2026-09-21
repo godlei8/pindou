@@ -61,6 +61,7 @@ export function usePattern(projectId: string) {
       ai_render_id: p.ai_render_id, created_at: p.created_at,
       score: p.buildability?.score ?? null,
       n_colors: Object.keys(p.color_stats ?? {}).length,
+      rows: p.grid.length, cols: p.grid[0]?.length ?? 0,
     }, ...vs]);
   }, []);
 

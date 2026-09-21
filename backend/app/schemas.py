@@ -41,6 +41,8 @@ class PatternBrief(_Base):
     created_at: datetime
     score: float | None = None
     n_colors: int = 0
+    rows: int = 0
+    cols: int = 0
 
 
 class ProjectRenameIn(BaseModel):
@@ -148,4 +150,6 @@ class StylePresetOut(_Base):
 
 class SizeSuggestion(BaseModel):
     long_side: int
+    rows: int
+    cols: int
     detail_loss: float

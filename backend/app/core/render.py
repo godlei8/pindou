@@ -115,12 +115,13 @@ def render_grid(grid: np.ndarray, palette: Palette, options: RenderOptions | Non
     if o.axis:
         for c in range(cols):
             gc = c + col_off
-            if o.minor_every and (gc % o.minor_every == 0 or c == 0):
+            # 最后一列也标：只标 1、6、11…的话，58 宽的图最后一个数是 56，读不出到底多宽
+            if o.minor_every and (gc % o.minor_every == 0 or c == 0 or c == cols - 1):
                 d.text((margin + c * cp + cp / 2, margin / 2), str(gc + 1),
                        fill=_MAJOR, font=axis_font, anchor="mm")
         for r in range(rows):
             gr = r + row_off
-            if o.minor_every and (gr % o.minor_every == 0 or r == 0):
+            if o.minor_every and (gr % o.minor_every == 0 or r == 0 or r == rows - 1):
                 d.text((margin / 2, margin + r * cp + cp / 2), str(gr + 1),
                        fill=_MAJOR, font=axis_font, anchor="mm")
 
@@ -149,8 +150,21 @@ def _code_key(code: str) -> tuple:
     return (m.group(1).upper(), int(m.group(2))) if m else (code, 0)
 
 
+#: 默认按 5mm 的中豆算实物尺寸，和 PDF 的 1:1 打印（PdfOptions.bead_mm）一致
+BEAD_MM = 5.0
+
+
+def size_line(rows: int, cols: int, bead_mm: float = BEAD_MM) -> str:
+    """「宽 58 × 高 44 格 · 实物 29.0 × 22.0 cm（按 5 mm 豆）」
+
+    写明哪边是宽哪边是高：只写"58×44"，拼的人得猜哪个是横的。"""
+    return (f"宽 {cols} × 高 {rows} 格 · 实物 {cols * bead_mm / 10:.1f} × "
+            f"{rows * bead_mm / 10:.1f} cm（按 {bead_mm:g} mm 豆）")
+
+
 def render_legend(rows: list[dict], palette: Palette, swatch_px: int = 28, font_px: int = 24,
-                  width: int | None = None) -> Image.Image:
+                  width: int | None = None,
+                  size: tuple[int, int, float] | None = None) -> Image.Image:
     """材料清单：标题行给总数，下面按色号顺序排成多列，每项是 色块 / 色号 / 颗数。
 
     - **按色号排，不按用量排。** 这张是拿去翻豆盒的清单，豆盒是按色号分格的，
@@ -166,6 +180,9 @@ def render_legend(rows: list[dict], palette: Palette, swatch_px: int = 28, font_
     items = sorted(rows, key=lambda r: _code_key(r["code"]))
     total = sum(r["count"] for r in items)
     title = f"材料清单　共 {total} 颗 · {len(items)} 色"
+    # 尺寸行放在清单标题上面：size = (行数, 列数, 豆子毫米数)
+    header = [size_line(*size)] if size else []
+    lines = header + [title]
 
     code_w = max((font.getlength(r["code"]) for r in items), default=0)
     count_w = max((font.getlength(f'{r["count"]} 颗') for r in items), default=0)
@@ -175,14 +192,17 @@ def render_legend(rows: list[dict], palette: Palette, swatch_px: int = 28, font_
     cols = max(1, min(len(items) or 1, inner // col_w))
     n_rows = math.ceil(len(items) / cols) if items else 0
 
-    title_h = font_px + gap * 2
+    text_line_h = font_px + gap
+    title_h = text_line_h * len(lines) + gap
     W = width if width else col_w * cols + 2 * pad
-    W = max(W, int(font.getlength(title)) + 2 * pad, col_w + 2 * pad)
+    W = max(W, *(int(font.getlength(t)) + 2 * pad for t in lines), col_w + 2 * pad)
     H = pad + title_h + n_rows * line_h + pad
 
     img = Image.new("RGB", (W, H), (255, 255, 255))
     d = ImageDraw.Draw(img)
-    d.text((pad, pad + font_px / 2), title, fill=(0, 0, 0), font=font, anchor="lm")
+    for k, text in enumerate(lines):
+        d.text((pad, pad + k * text_line_h + font_px / 2), text, fill=(0, 0, 0),
+               font=font, anchor="lm")
     y_line = pad + title_h - gap
     d.line([pad, y_line, W - pad, y_line], fill=_MAJOR, width=2)
 
@@ -201,7 +221,7 @@ def render_legend(rows: list[dict], palette: Palette, swatch_px: int = 28, font_
 
 
 def render_sheet(grid: np.ndarray, palette: Palette,
-                 options: RenderOptions | None = None) -> Image.Image:
+                 options: RenderOptions | None = None, bead_mm: float = BEAD_MM) -> Image.Image:
     """下载用的整张：图纸在上，材料清单在下。拿着一张图就能去拿豆子、开始拼。"""
     o = options or RenderOptions()
     pattern = render_grid(grid, palette, o)
@@ -212,7 +232,8 @@ def render_sheet(grid: np.ndarray, palette: Palette,
     # 清单字号跟着格子走，但要是 12 的整数倍（像素字体）且不小于 12
     font_px = 24 if o.cell_px >= 20 else 12
     legend = render_legend(materials(region, palette), palette,
-                           swatch_px=o.cell_px, font_px=font_px, width=pattern.width)
+                           swatch_px=o.cell_px, font_px=font_px, width=pattern.width,
+                           size=(region.shape[0], region.shape[1], bead_mm))
 
     W = max(pattern.width, legend.width)
     sep = max(8, o.cell_px // 2)

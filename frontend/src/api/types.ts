@@ -18,6 +18,9 @@ export interface PatternBrief {
   created_at: string;
   score: number | null;
   n_colors: number;
+  /** 图纸尺寸（格）。首页卡片上写"58×44"，不能只写"58 格"。 */
+  rows: number;
+  cols: number;
 }
 
 export interface Project {
@@ -112,6 +115,8 @@ export interface Job {
 
 export interface SizeSuggestion {
   long_side: number;
+  rows: number;
+  cols: number;
   detail_loss: number;
 }
 

@@ -3,7 +3,7 @@ from PIL import Image
 
 from app.core.palette import Palette
 from app.core.render import (RenderOptions, _code_key, cjk_font, materials, render_grid,
-                             render_legend, render_sheet, text_color_for)
+                             render_legend, render_sheet, size_line, text_color_for)
 from app.core.split import Board
 
 
@@ -148,3 +148,36 @@ def test_sheet_widens_for_a_tiny_pattern_instead_of_clipping_the_list():
     g = np.zeros((2, 2), dtype=np.int16)            # 图纸很窄，清单标题都比它宽
     sheet = render_sheet(g, pal, RenderOptions(cell_px=28))
     assert sheet.width >= render_legend(materials(g, pal), pal).width
+
+
+
+# ---- 尺寸标注 --------------------------------------------------------------
+
+def test_size_line_names_width_and_height_explicitly():
+    """只写"58×44"得猜哪个是横的——要写明宽和高，再给出实物尺寸。"""
+    assert size_line(44, 58, 5.0) == "宽 58 × 高 44 格 · 实物 29.0 × 22.0 cm（按 5 mm 豆）"
+
+
+def test_size_line_follows_bead_size():
+    assert "实物 14.5 × 11.0 cm（按 2.5 mm 豆）" in size_line(44, 58, 2.5)
+
+
+def test_legend_with_size_gets_an_extra_line():
+    pal = _palette()
+    rows = materials(_many_colors(), pal)
+    plain = render_legend(rows, pal, width=1600)
+    sized = render_legend(rows, pal, width=1600, size=(44, 58, 5.0))
+    assert sized.height > plain.height
+
+
+def test_axis_labels_the_last_column_and_row():
+    """只标 1、6、11…的话，58 宽的图最后一个数字是 56，读不出到底多宽。
+    这里用"坐标轴那一行最右侧有没有画东西"来判断最后一列有标号。"""
+    pal = _palette()
+    g = np.zeros((8, 8), dtype=np.int16)            # 8 不是 5 的倍数+1，原来不会标
+    img = np.asarray(render_grid(g, pal, RenderOptions(cell_px=28)).convert("L"))
+    margin = int(28 * 0.9)
+    last_col = img[:margin, margin + 7 * 28: margin + 8 * 28]
+    last_row = img[margin + 7 * 28: margin + 8 * 28, :margin]
+    assert (last_col < 128).any(), "最后一列上方没有标号"
+    assert (last_row < 128).any(), "最后一行左边没有标号"

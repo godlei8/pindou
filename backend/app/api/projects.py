@@ -37,7 +37,9 @@ def _briefs(db: Session, project_id: uuid.UUID) -> list[dict]:
     return [{"id": p.id, "origin": p.origin, "parent_id": p.parent_id,
              "ai_render_id": p.ai_render_id,
              "created_at": p.created_at, "score": (p.buildability or {}).get("score"),
-             "n_colors": len(p.color_stats or {})} for p in rows]
+             "n_colors": len(p.color_stats or {}),
+             # 尺寸：首页卡片上要写"58×44 格"，不能只写"58 格"
+             "rows": len(p.grid or []), "cols": len((p.grid or [[]])[0])} for p in rows]
 
 
 def _project_out(db: Session, proj: Project) -> dict:

@@ -13,7 +13,7 @@ const PROJECTS = [
     id: "p1", name: "小新", created_at: "2026-09-20T00:00:00Z",
     patterns: [
       { id: "pat2", origin: "edited", parent_id: "pat1", ai_render_id: null,
-        created_at: "2026-09-20T01:00:00Z", score: 92.5, n_colors: 8 },
+        created_at: "2026-09-20T01:00:00Z", score: 92.5, n_colors: 8, rows: 44, cols: 58 },
       { id: "pat1", origin: "generated", parent_id: null, ai_render_id: null,
         created_at: "2026-09-20T00:30:00Z", score: 86, n_colors: 9 },
     ],
@@ -95,6 +95,7 @@ describe("首页：进站就能投图", () => {
     expect(screen.getByText("小新")).toBeTruthy();
     expect(screen.getByText(/2 个版本/)).toBeTruthy();
     expect(screen.getByText(/可拼性 92\.5/)).toBeTruthy();
+    expect(screen.getByText(/58×44 格/)).toBeTruthy();   // 卡片上写全两边
   });
 
   test("缩略图用最新图纸；还没出图的项目退回原图", async () => {
