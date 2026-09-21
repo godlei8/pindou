@@ -264,3 +264,80 @@ def _separate(pat: np.ndarray, touch: np.ndarray, around: np.ndarray, k: int) ->
                         a = int(pat[r + 1, c + 1])
         if not fixed:
             break
+
+
+# ══ 照片：直接优化"离远一点看的色差" ════════════════════════════════════════════
+#
+# 原来每一格各算各的：找和这格平均色最近的豆，再用平滑压杂点。人眼不是一格一格看的——
+# 离远一点，相邻几格的颜色会混在一起，所以色块的边界往哪边挪一格，是可以按"混起来更准"来选的。
+#
+# 做法：从图割的结果出发，逐格试着换成**上下左右邻居的颜色**，
+# 模糊后的平方色差 Σ|G*(原图 − 图纸)|² 下降就换。只许换成邻居的颜色、不许把邻居变成孤零零的一颗：
+# 色块的边界可以移动，但不会凭空撒点——还原度只升不降，可拼性不受损。
+#
+# 试过但没采用（2026-09-21，6 张照片 × 2 档格数）：把这个误差和「平整度 λ」加权成一个目标一起优化。
+# 权重小了等于多平滑一遍（还原度 84.9 → 83.9），权重大了变成抖动（还原度 86.6 但散点 1.6% → 10.6%），
+# 中间档平均只 +0.1 分、个别图 -3.6 分。照片上还原度和平整是真冲突，没有平涂图那种"两头都占"的解。
+
+#: 模糊半径（格），和 fidelity.BLUR_CELLS 一致
+TONE_SIGMA = 0.6
+TONE_SWEEPS = 4
+
+
+def _gauss(sigma: float, radius: int) -> np.ndarray:
+    x = np.arange(-radius, radius + 1)
+    g = np.exp(-(x ** 2) / (2 * sigma ** 2))
+    g /= g.sum()
+    return np.outer(g, g)
+
+
+def refine_tones(cell_ok: np.ndarray, mask: np.ndarray, colors_ok: np.ndarray,
+                 labels: np.ndarray, locked: np.ndarray | None = None) -> np.ndarray:
+    """cell_ok：(rows, cols, 3) 每格的 OKLab；colors_ok：(K, 3) 可用的豆；labels：(rows, cols) 初稿。"""
+    from scipy.signal import correlate2d
+    s, c_ok = cell_ok * 100.0, colors_ok * 100.0           # ×100：量级和 ΔE 差不多
+    g = _gauss(TONE_SIGMA, 2)
+    gg = correlate2d(g, g)                                  # 9×9
+    g2, rad = float(gg[4, 4]), 4
+    diff = np.where(mask[..., None], s - c_ok[labels], 0.0)
+    q = np.stack([correlate2d(diff[..., ch], gg, mode="same") for ch in range(3)], -1)
+    q = np.pad(q, ((rad, rad), (rad, rad), (0, 0)))
+    lp = np.pad(np.where(mask, labels, -1), 1, constant_values=-1)
+    free = mask if locked is None else mask & (locked < 0)
+    around = ((-1, 0), (1, 0), (0, -1), (0, 1))
+
+    def same_neighbors(r: int, c: int, label: int, skip=None) -> int:
+        return sum(1 for dr, dc in around
+                   if (r + dr, c + dc) != skip and lp[r + dr, c + dc] == label)
+
+    for _ in range(TONE_SWEEPS):
+        changed = 0
+        # 只有色块边界上的格子才有得换
+        edge = np.zeros_like(mask)
+        core = lp[1:-1, 1:-1]
+        for dr, dc in around:
+            nb = lp[1 + dr:lp.shape[0] - 1 + dr, 1 + dc:lp.shape[1] - 1 + dc]
+            edge |= (nb != core) & (nb >= 0)
+        for r, c in np.argwhere(edge & free):
+            r, c = int(r) + 1, int(c) + 1                   # 垫过的坐标
+            cur = int(lp[r, c])
+            options = {int(lp[r + dr, c + dc]) for dr, dc in around} - {cur, -1}
+            best, best_d = cur, -1e-6
+            for j in options:
+                delta = c_ok[j] - c_ok[cur]
+                d = float(-2.0 * delta @ q[r - 1 + rad, c - 1 + rad] + (delta ** 2).sum() * g2)
+                if d < best_d:
+                    best, best_d = j, d
+            if best == cur:
+                continue
+            # 不许把同色的邻居变成孤零零的一颗
+            if any(lp[r + dr, c + dc] == cur and same_neighbors(r + dr, c + dc, cur, skip=(r, c)) == 0
+                   for dr, dc in around):
+                continue
+            delta = c_ok[best] - c_ok[cur]
+            q[r - 1:r + 2 * rad, c - 1:c + 2 * rad] -= gg[..., None] * delta
+            lp[r, c] = best
+            changed += 1
+        if not changed:
+            break
+    return np.where(mask, lp[1:-1, 1:-1], labels)

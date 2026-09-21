@@ -10,6 +10,7 @@ from app.core.color import pairwise_delta_e, srgb_to_lab, srgb_to_oklab
 from app.core.merge import color_counts, detect_outline_cells, merge_small_colors
 from app.core.palette import Palette
 from app.core.patches import attach_patches
+from app.core.refine import refine_tones
 from app.core.select import rescue_salient_colors, select_palette
 from app.core.types import EMPTY, Params, PatternResult
 
@@ -28,6 +29,7 @@ def _load(image) -> np.ndarray:
 #: 抗锯齿像素和实打实的颜色一样多，逐像素投票的结果边缘毛糙、冒杂色。
 MIN_PX_PER_CELL = 4
 BORDER_TOLERANCE = 0.05
+TONE_REFINE = True
 
 
 def _upscale_small(rgba: np.ndarray, long_side: int) -> np.ndarray:
@@ -139,25 +141,40 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
     faces = [] if kind == "pixel_art" else face.detect_faces(rgba)
     edge_weight = face.feature_edge_weights(faces, lab, cells.mask)
     local = assign_labels(cost, cells.mask, params.smoothness, locked, edge_weight=edge_weight)
-    grid[cells.mask] = working[local[cells.mask]]
 
-    protected_colors = {int(grid[r, c]) for r, c in params.protected_cells
-                        if 0 <= r < rows and 0 <= c < cols and grid[r, c] != EMPTY}
-    if palette.clear_index is not None:
-        protected_colors.add(palette.clear_index)
-    # 补进来的特征色往往只有几颗豆，低于小色号阈值也不能合并掉——那正是人眼最先看的地方
-    protected_colors.update(rescued)
-    if cells.flat:
-        # 平涂插画：图纸上每种颜色都是原图真有的（没有过渡色可并）。只有两颗豆的眼睛高光
-        # 并掉就是少了高光——还原度优先，不合并
-        protected_colors.update(int(c) for c in np.unique(grid[cells.mask]))
-    grid, _ = merge_small_colors(grid, palette.lab, params.small_color_threshold,
-                                 protected=protected_colors)
+    def finalize(labels: np.ndarray):
+        g = np.full((rows, cols), EMPTY, dtype=np.int16)
+        g[cells.mask] = working[labels[cells.mask]]
+        protected_colors = {int(g[r, c]) for r, c in params.protected_cells
+                            if 0 <= r < rows and 0 <= c < cols and g[r, c] != EMPTY}
+        if palette.clear_index is not None:
+            protected_colors.add(palette.clear_index)
+        # 补进来的特征色往往只有几颗豆，低于小色号阈值也不能合并掉——那正是人眼最先看的地方
+        protected_colors.update(rescued)
+        if cells.flat:
+            # 平涂插画：图纸上每种颜色都是原图真有的（没有过渡色可并）。只有两颗豆的眼睛高光
+            # 并掉就是少了高光——还原度优先，不合并
+            protected_colors.update(int(c) for c in np.unique(g[cells.mask]))
+        g, _ = merge_small_colors(g, palette.lab, params.small_color_threshold,
+                                  protected=protected_colors)
+        try:                 # 还原度是附加环节，失败不能拖垮出图
+            f = fidelity.measure(rgba, g, palette.rgb, cells.inks)
+        except Exception:
+            f = None
+        return g, f
 
-    try:                     # 还原度是附加环节，失败不能拖垮出图
-        fid = fidelity.measure(rgba, grid, palette.rgb, cells.inks)
-    except Exception:
-        fid = None
+    grid, fid = finalize(local)
+    if not cells.flat and kind != "pixel_art" and TONE_REFINE:
+        # 照片：从图割的结果出发，让色块边界按"离远一点看更准"移动（core/refine.py 的 refine_tones）。
+        # 守门：两个版本都算还原度，哪个高用哪个——任何优化步骤都不许让还原度下降。
+        # （实测 6 张照片 × 2 档：平均 84.9 → 85.4、散点 1.6% → 1.0%，但有 3 组略降，所以要守门。）
+        try:
+            tuned = refine_tones(ok, cells.mask, palette.oklab[working], local, locked)
+            grid2, fid2 = finalize(tuned)
+            if fid is not None and fid2 is not None and fid2["score"] > fid["score"]:
+                grid, fid = grid2, fid2
+        except Exception:
+            pass
     return _finish(grid, cells.rgb, params, palette, kind, faces, fid)
 
 

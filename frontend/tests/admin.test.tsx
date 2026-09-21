@@ -59,7 +59,7 @@ describe("管理后台", () => {
     expect(await screen.findByRole("heading", { name: "实拼反馈" })).toBeTruthy();
     expect(calls.some((c) => c.url.endsWith("/api/projects"))).toBe(false);   // 用户端的页面没加载过
     expect(screen.queryByRole("link", { name: "馨豆" })).toBeNull();          // 顶栏也没有回用户端的入口
-    expect(screen.getByText(/还没有人提交实拼反馈/)).toBeTruthy();
+    expect(await screen.findByText(/还没有人提交实拼反馈/)).toBeTruthy();   // 列表是异步加载的
   });
 
   test("加额度：发增量，表格换成服务器返回的值", async () => {

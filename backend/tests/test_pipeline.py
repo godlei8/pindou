@@ -64,7 +64,9 @@ def test_lambda_zero_equals_nearest_color(palette):
     assert (res.grid[mask] == nearest[mask]).mean() > 0.97
 
 
-def test_smoothness_reduces_confetti_on_noisy_photo(palette):
+def test_smoothness_reduces_confetti_on_noisy_photo(palette, monkeypatch):
+    # 关掉照片的色块边界优化：它自己就会把噪点并进邻居（λ=0 时散点也是 0），看不出 λ 的作用
+    monkeypatch.setattr(pipeline, "TONE_REFINE", False)
     a = _run("photo_like.png", grid_long_side=50, max_colors=12, smoothness=0.0, lock_outlines=False)
     b = _run("photo_like.png", grid_long_side=50, max_colors=12, smoothness=2.0, lock_outlines=False)
     assert b.report.confetti_pct < a.report.confetti_pct
@@ -123,3 +125,14 @@ def test_golden_snapshot(name, palette):
     old = json.loads(snap.read_text())
     diff = sum(a != b for ra, rb in zip(old, current) for a, b in zip(ra, rb))
     assert diff <= 0.02 * res.grid.size, f"{name}: {diff} cells changed vs snapshot"
+
+
+def test_tone_refine_never_lowers_fidelity_and_does_not_scatter(palette, monkeypatch):
+    """照片：色块边界按"离远一点看更准"移动。还原度只升不降（有守门），也不凭空撒点。"""
+    monkeypatch.setattr(pipeline, "TONE_REFINE", False)
+    base = _run("photo_like.png", grid_long_side=58)
+    monkeypatch.setattr(pipeline, "TONE_REFINE", True)
+    tuned = _run("photo_like.png", grid_long_side=58)
+    assert tuned.fidelity["score"] >= base.fidelity["score"]
+    assert tuned.fidelity["score"] > base.fidelity["score"] + 0.5      # 这张图上确实有用
+    assert tuned.report.confetti_pct <= base.report.confetti_pct + 0.5
