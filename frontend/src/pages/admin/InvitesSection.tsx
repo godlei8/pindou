@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 
 import { api } from "../../api/client";
+import { copyText, inviteUrl } from "../../lib/invite";
 import type { AdminInvite, InviteState, User } from "../../api/types";
 import { Loading, errorText, fmtTime, useAdminData } from "./shared";
 
@@ -15,6 +16,8 @@ export function InvitesSection(_: { me: User }) {
   const [fresh, setFresh] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** 刚复制的是哪一个（"fresh" 表示新生成那一批），按钮上显示「已复制」 */
+  const [copied, setCopied] = useState<string | null>(null);
 
   if (!data) return <Loading error={error} onRetry={reload} />;
 
@@ -45,7 +48,14 @@ export function InvitesSection(_: { me: User }) {
     }
   };
 
-  const copyFresh = () => void navigator.clipboard?.writeText(fresh.join("\n"));
+  const copy = async (key: string, text: string) => {
+    if (await copyText(text)) {
+      setCopied(key);
+      window.setTimeout(() => setCopied((k) => (k === key ? null : k)), 1500);
+    } else {
+      setActionError("复制失败，请手动选中链接复制");
+    }
+  };
 
   return (
     <>
@@ -62,9 +72,13 @@ export function InvitesSection(_: { me: User }) {
 
       {fresh.length > 0 && (
         <div className="admin-fresh" role="status">
-          <p>新生成 {fresh.length} 个，发给要邀请的人：</p>
-          <code>{fresh.join("  ")}</code>
-          <button type="button" onClick={copyFresh}>复制</button>
+          <p>新生成 {fresh.length} 个。把注册链接发给要邀请的人，打开就能注册，邀请码自动填好：</p>
+          <ul className="admin-links">
+            {fresh.map((code) => <li key={code}><code>{inviteUrl(code)}</code></li>)}
+          </ul>
+          <button type="button" onClick={() => void copy("fresh", fresh.map((c) => inviteUrl(c)).join("\n"))}>
+            {copied === "fresh" ? "已复制" : fresh.length > 1 ? "复制全部链接" : "复制注册链接"}
+          </button>
         </div>
       )}
 
@@ -82,7 +96,13 @@ export function InvitesSection(_: { me: User }) {
                 <td>{c.expires_at ? fmtTime(c.expires_at) : "永久"}</td>
                 <td>{fmtTime(c.created_at)}</td>
                 <td><span className={`status status-${c.state}`}>{STATE[c.state]}</span></td>
-                <td>
+                <td className="admin-actions">
+                  {c.state === "active" && (
+                    <button type="button" className="small" aria-label={`复制 ${c.code} 的注册链接`}
+                            onClick={() => void copy(c.code, inviteUrl(c.code))}>
+                      {copied === c.code ? "已复制" : "复制注册链接"}
+                    </button>
+                  )}
                   {c.state !== "expired" && (
                     <button type="button" className="small" onClick={() => void revoke(c)}>作废</button>
                   )}

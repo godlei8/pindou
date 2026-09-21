@@ -212,3 +212,36 @@ def test_admin_can_see_other_peoples_thumbs(admin_client, db):
     db.flush()
     assert admin_client.get(f"/api/patterns/{pat.id}/thumb").status_code == 404
     assert admin_client.get(f"/api/admin/patterns/{pat.id}/thumb").status_code == 200
+
+
+# ---- 管理员独立登录 ----------------------------------------------------------------
+
+def _login_admin(client, username="fixture-user", password="pw12345678"):
+    return client.post("/api/auth/admin-login", json={"username": username, "password": password})
+
+
+def test_admin_login_lets_admins_in(admin_client):
+    admin_client.post("/api/auth/logout")
+    r = _login_admin(admin_client)
+    assert r.status_code == 200 and r.json()["is_admin"] is True
+    assert admin_client.get("/api/admin/users").status_code == 200
+
+
+def test_admin_login_refuses_plain_users_without_a_session(auth_client):
+    auth_client.post("/api/auth/logout")
+    r = _login_admin(auth_client)
+    assert r.status_code == 403 and "不是管理员" in r.json()["detail"]
+    assert "set-cookie" not in r.headers
+    assert auth_client.get("/api/auth/me").status_code == 401
+
+
+def test_admin_login_wrong_password_is_401(admin_client):
+    admin_client.post("/api/auth/logout")
+    assert _login_admin(admin_client, password="wrong-password").status_code == 401
+
+
+def test_disabled_admin_cannot_use_admin_login(admin_client, db):
+    admin_client.post("/api/auth/logout")
+    admin_client.user.is_disabled = True
+    db.flush()
+    assert _login_admin(admin_client).status_code == 400
