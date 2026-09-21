@@ -54,7 +54,9 @@ function TopBar() {
       )}
       {/* 管理入口只给管理员；在后台里就不再显示自己 */}
       {user.is_admin && !inAdmin && (
-        <Link to="/admin" className="admin-link" onClick={leave(() => navigate("/admin"))}>管理后台</Link>
+        <Link to="/admin" className="admin-link" aria-label="管理后台" onClick={leave(() => navigate("/admin"))}>
+          <span className="wide-only">管理</span>后台
+        </Link>
       )}
       <span className="quota">
         <span className="wide-only">{user.username} · </span>

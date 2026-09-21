@@ -46,7 +46,9 @@ describe("管理后台", () => {
   test("普通用户看不到入口，直接访问也被送回首页", async () => {
     stub(PLAIN);
     mountAt("/admin/users");
-    await screen.findByText(/boss · AI 额度/);
+    // 额度文字分成几段（手机上藏掉用户名和「额度」二字），按整块文本等
+    await waitFor(() =>
+      expect(document.querySelector(".quota")?.textContent).toMatch(/boss · AI 额度/));
     expect(screen.queryByRole("link", { name: "管理后台" })).toBeNull();
     expect(screen.queryByRole("navigation", { name: "管理后台" })).toBeNull();
   });
