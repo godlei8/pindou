@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import type { PatternParams } from "../api/types";
@@ -15,8 +15,10 @@ import { VersionList } from "../components/VersionList";
 import { useEditor } from "../hooks/useEditor";
 import { useElementSize } from "../hooks/useElementSize";
 import { usePattern } from "../hooks/usePattern";
+import { useWorkbenchNav } from "../hooks/useWorkbenchNav";
 import { fitCellPx } from "../lib/draw";
-import { MAX_ZOOM, MIN_ZOOM, zoomIn, zoomOut } from "../lib/zoom";
+import { MAX_ZOOM, MIN_ZOOM, SHOW_CODES_MIN, cellPxFor, zoomIn, zoomOut } from "../lib/zoom";
+import type { ZoomMode } from "../lib/zoom";
 
 /** 留 2px 余量。正好卡在边界上时，滚动条一出一进会让尺寸来回抖。 */
 const SAFETY_PAD = 2;
@@ -30,9 +32,24 @@ export function WorkbenchPage() {
   const [saving, setSaving] = useState(false);
   const patternId = p.pattern?.id;
 
+  // 告诉顶栏：项目名，以及离开前要不要确认。dirty 放 ref 里读最新值，
+  // 免得每画一笔都重新注册一次。
+  const { setNav } = useWorkbenchNav();
+  const dirty = useRef(false);
+  dirty.current = editor.state.dirty;
+  const projectName = p.project?.name ?? "";
+  useEffect(() => {
+    setNav({
+      title: projectName,
+      confirmLeave: () => !dirty.current
+        || window.confirm("有未保存的改动，离开会丢掉它们。确定离开？"),
+    });
+    return () => setNav(null);
+  }, [projectName, setNav]);
+
   const [wrapRef, wrapSize, wrapNode] = useElementSize<HTMLDivElement>();
-  /** null = 跟随窗口自动适应；有值 = 用户手动缩放过。 */
-  const [manualPx, setManualPx] = useState<number | null>(null);
+  /** 默认 codes：一进来就能逐格看清色号。看全貌点「适应」。 */
+  const [zoom, setZoom] = useState<ZoomMode>("codes");
   /** 正在图上定位的色号索引。点材料清单里的一行就能看见它铺在哪儿。 */
   const [locating, setLocating] = useState<number | null>(null);
 
@@ -42,8 +59,10 @@ export function WorkbenchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patternId]);
 
-  // 换了图纸（多半也换了格数）就回到自动适应，别让上一张的缩放留着
-  useEffect(() => { setManualPx(null); setLocating(null); }, [patternId]);
+  // 换了项目才回到默认；同一项目里改参数、切版本时保留用户选的缩放方式——
+  // codes / fit 本来就会跟着格数自己调，没必要每出一版就把人弹回去
+  useEffect(() => { setZoom("codes"); }, [projectId]);
+  useEffect(() => { setLocating(null); }, [patternId]);
 
   const colorMap = useMemo(
     () => new Map(p.palette.map((c) => [c.index, c.hex])), [p.palette]);
@@ -60,7 +79,7 @@ export function WorkbenchPage() {
     return Math.min(MAX_ZOOM, fitCellPx(editor.state.grid, w, h));
   }, [editor.state.grid, wrapSize.w, wrapSize.h]);
 
-  const cellPx = manualPx ?? fitPx;
+  const cellPx = cellPxFor(zoom, fitPx);
 
   const highlight = useMemo<[number, number][]>(() => {
     if (locating === null) return [];
@@ -77,11 +96,11 @@ export function WorkbenchPage() {
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;          // 不按 Ctrl 就是正常滚动画布
       e.preventDefault();
-      setManualPx((cur) => (e.deltaY < 0 ? zoomIn(cur ?? fitPx) : zoomOut(cur ?? fitPx)));
+      setZoom(e.deltaY < 0 ? zoomIn(cellPx) : zoomOut(cellPx));
     };
     wrapNode.addEventListener("wheel", onWheel, { passive: false });
     return () => wrapNode.removeEventListener("wheel", onWheel);
-  }, [wrapNode, fitPx]);
+  }, [wrapNode, cellPx]);
 
   function changeParams(next: PatternParams) {
     if (editor.state.dirty &&
@@ -138,17 +157,19 @@ export function WorkbenchPage() {
           colorCode={selected === null ? null : (codeMap.get(selected) ?? String(selected))}
           colorHex={selected === null ? null : (colorMap.get(selected) ?? null)}
           cellPx={cellPx}
-          fitted={manualPx === null}
+          mode={typeof zoom === "number" ? "manual" : zoom}
+          showsCodes={cellPx >= SHOW_CODES_MIN}
           canZoomIn={cellPx < MAX_ZOOM}
           canZoomOut={cellPx > MIN_ZOOM}
-          onZoomIn={() => setManualPx(zoomIn(cellPx))}
-          onZoomOut={() => setManualPx(zoomOut(cellPx))}
-          onFit={() => setManualPx(null)}
+          onZoomIn={() => setZoom(zoomIn(cellPx))}
+          onZoomOut={() => setZoom(zoomOut(cellPx))}
+          onFit={() => setZoom("fit")}
+          onCodes={() => setZoom("codes")}
         />
         <div className="canvas-wrap" ref={wrapRef}>
           <PatternCanvas grid={editor.state.grid} colors={colorMap} cellPx={cellPx}
                          codeOf={(i) => codeMap.get(i) ?? String(i)}
-                         showCodes={cellPx >= 18}
+                         showCodes={cellPx >= SHOW_CODES_MIN}
                          highlight={highlight}
                          protectedCells={editor.state.protectedCells}
                          onCellDown={(r, c) => editor.applyAt(r, c)}

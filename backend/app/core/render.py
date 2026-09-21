@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -39,10 +42,31 @@ def text_color_for(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
 
 
 def _font(size: int):
+    """只用于纯 ASCII 的地方（格子里的色号、坐标轴）。它没有中文字形。"""
     try:
         return ImageFont.load_default(size=size)
     except TypeError:          # Pillow < 10.1
         return ImageFont.load_default()
+
+
+_CJK_FONT_PATH = (Path(__file__).resolve().parents[1]
+                  / "assets" / "fonts" / "fusion-pixel-12px-zh_hans-subset.ttf")
+
+
+@lru_cache(maxsize=16)
+def cjk_font(size: int):
+    """带中文字形的字体，凡是要画汉字的地方都用它。
+
+    Pillow 的默认字体没有中文：之前 PDF 材料清单里的"颗""包"、每页页脚的
+    "第 1 行 / 第 1 列 页"一直渲染成方块，没人发现。
+
+    这是像素字体（设计尺寸 12px），字号取 12 的整数倍才清楚，这里就近取整。
+    协议 OFL 1.1，随附 OFL.txt。"""
+    size = max(12, round(size / 12) * 12)
+    try:
+        return ImageFont.truetype(str(_CJK_FONT_PATH), size)
+    except OSError:            # 字体文件丢了也别让导出整个失败，退回默认字体
+        return _font(size)
 
 
 def render_grid(grid: np.ndarray, palette: Palette, options: RenderOptions | None = None) -> Image.Image:
@@ -119,17 +143,80 @@ def materials(grid: np.ndarray, palette: Palette, pack_size: int = 1000) -> list
     return rows
 
 
-def render_legend(rows: list[dict], palette: Palette, cell_px: int = 28) -> Image.Image:
-    line_h = cell_px + 6
-    W = cell_px * 10
-    img = Image.new("RGB", (W, max(line_h, line_h * len(rows))), (255, 255, 255))
+def _code_key(code: str) -> tuple:
+    """色号自然排序：A2 在 A10 前面。拿豆子时是按色号顺序去豆盒里翻的。"""
+    m = re.fullmatch(r"([A-Za-z]+)(\d+)", code)
+    return (m.group(1).upper(), int(m.group(2))) if m else (code, 0)
+
+
+def render_legend(rows: list[dict], palette: Palette, swatch_px: int = 28, font_px: int = 24,
+                  width: int | None = None) -> Image.Image:
+    """材料清单：标题行给总数，下面按色号顺序排成多列，每项是 色块 / 色号 / 颗数。
+
+    - **按色号排，不按用量排。** 这张是拿去翻豆盒的清单，豆盒是按色号分格的，
+      顺着色号走一遍就拿齐了。网页上那份按用量排，是给人看哪几个色号是大头的，用途不同。
+    - 给了 width 就排成多列铺满，不给就单列。原来是一根 280px 的单列，
+      拼到一千多像素宽的图纸下面，右边全是空白。
+    - 颗数右对齐，扫一眼就能比大小。"""
+    font = cjk_font(font_px)
+    pad = max(8, swatch_px // 2)
+    gap = max(6, swatch_px // 3)
+    line_h = max(swatch_px, font_px) + gap
+
+    items = sorted(rows, key=lambda r: _code_key(r["code"]))
+    total = sum(r["count"] for r in items)
+    title = f"材料清单　共 {total} 颗 · {len(items)} 色"
+
+    code_w = max((font.getlength(r["code"]) for r in items), default=0)
+    count_w = max((font.getlength(f'{r["count"]} 颗') for r in items), default=0)
+    col_w = int(swatch_px + gap + code_w + gap * 2 + count_w + gap * 3)
+
+    inner = (width - 2 * pad) if width else col_w
+    cols = max(1, min(len(items) or 1, inner // col_w))
+    n_rows = math.ceil(len(items) / cols) if items else 0
+
+    title_h = font_px + gap * 2
+    W = width if width else col_w * cols + 2 * pad
+    W = max(W, int(font.getlength(title)) + 2 * pad, col_w + 2 * pad)
+    H = pad + title_h + n_rows * line_h + pad
+
+    img = Image.new("RGB", (W, H), (255, 255, 255))
     d = ImageDraw.Draw(img)
-    font = _font(max(8, int(cell_px * 0.45)))
-    for i, row in enumerate(rows):
-        y = i * line_h + 3
-        rgb = tuple(int(x) for x in palette.rgb[row["index"]])
-        d.rectangle([3, y, 3 + cell_px, y + cell_px], fill=rgb, outline=_LINE)
-        d.text((3 + cell_px + 8, y + cell_px / 2),
-               f'{row["code"]}   {row["count"]} 颗   {row["packs"]} 包',
-               fill=(0, 0, 0), font=font, anchor="lm")
+    d.text((pad, pad + font_px / 2), title, fill=(0, 0, 0), font=font, anchor="lm")
+    y_line = pad + title_h - gap
+    d.line([pad, y_line, W - pad, y_line], fill=_MAJOR, width=2)
+
+    for i, r in enumerate(items):
+        row, col = divmod(i, cols)          # 横着排，符合阅读顺序
+        x = pad + col * col_w
+        y = pad + title_h + row * line_h
+        mid = y + max(swatch_px, font_px) / 2
+        rgb = tuple(int(v) for v in palette.rgb[r["index"]])
+        sy = mid - swatch_px / 2
+        d.rectangle([x, sy, x + swatch_px, sy + swatch_px], fill=rgb, outline=_LINE)
+        d.text((x + swatch_px + gap, mid), r["code"], fill=(0, 0, 0), font=font, anchor="lm")
+        d.text((x + col_w - gap * 3, mid), f'{r["count"]} 颗', fill=(0, 0, 0),
+               font=font, anchor="rm")
     return img
+
+
+def render_sheet(grid: np.ndarray, palette: Palette,
+                 options: RenderOptions | None = None) -> Image.Image:
+    """下载用的整张：图纸在上，材料清单在下。拿着一张图就能去拿豆子、开始拼。"""
+    o = options or RenderOptions()
+    pattern = render_grid(grid, palette, o)
+    region = grid
+    if o.board is not None:
+        b = o.board
+        region = grid[b.row0:b.row0 + b.rows, b.col0:b.col0 + b.cols]
+    # 清单字号跟着格子走，但要是 12 的整数倍（像素字体）且不小于 12
+    font_px = 24 if o.cell_px >= 20 else 12
+    legend = render_legend(materials(region, palette), palette,
+                           swatch_px=o.cell_px, font_px=font_px, width=pattern.width)
+
+    W = max(pattern.width, legend.width)
+    sep = max(8, o.cell_px // 2)
+    sheet = Image.new("RGB", (W, pattern.height + sep + legend.height), (255, 255, 255))
+    sheet.paste(pattern, ((W - pattern.width) // 2, 0))
+    sheet.paste(legend, (0, pattern.height + sep))
+    return sheet

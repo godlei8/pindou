@@ -199,8 +199,9 @@ def materials_of(pattern: Pattern, palette: CorePalette, pack_size: int = 1000) 
 
 def export_png(pattern: Pattern, palette: CorePalette, cell_px: int = 28,
                board: Board | None = None) -> bytes:
-    img = render.render_grid(grid_from_db(pattern.grid), palette,
-                             render.RenderOptions(cell_px=cell_px, board=board))
+    # 底下带材料清单：拿着这一张就能去豆盒里拿豆、开始拼
+    img = render.render_sheet(grid_from_db(pattern.grid), palette,
+                              render.RenderOptions(cell_px=cell_px, board=board))
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()

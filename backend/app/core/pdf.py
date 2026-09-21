@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from app.core.palette import Palette
-from app.core.render import RenderOptions, _font, materials, render_grid, render_legend
+from app.core.render import RenderOptions, cjk_font, materials, render_grid, render_legend
 from app.core.split import Board
 
 _PAGES_MM = {"A4": (210.0, 297.0), "A3": (297.0, 420.0)}
@@ -56,7 +56,8 @@ def render_pages(grid: np.ndarray, palette: Palette, options: PdfOptions | None 
     step_w, step_h = max(1, cw - o.overlap_cells), max(1, ch - o.overlap_cells)
     n_w = 1 if cols <= cw else math.ceil((cols - o.overlap_cells) / step_w)
     n_h = 1 if rows <= ch else math.ceil((rows - o.overlap_cells) / step_h)
-    font = _font(_mm(3, o.dpi))
+    # 页脚是中文。原来用的默认字体没有中文字形，"第 1 行 / 第 1 列 页"一直是方块
+    font = cjk_font(_mm(3, o.dpi))
     pages: list[Image.Image] = []
 
     for i in range(n_h):
@@ -76,7 +77,10 @@ def render_pages(grid: np.ndarray, palette: Palette, options: PdfOptions | None 
                    fill=(0, 0, 0), font=font, anchor="mm")
             pages.append(page)
 
-    legend = render_legend(materials(grid, palette), palette, cell_px=max(20, cell_px // 2))
+    # 清单页：色块做成和实物豆一样大（bead_mm），字号按打印出来约 3.5mm 算，铺满页宽
+    legend = render_legend(materials(grid, palette), palette,
+                           swatch_px=_mm(o.bead_mm, o.dpi), font_px=_mm(3.5, o.dpi),
+                           width=W - 2 * margin)
     lp = Image.new("RGB", (W, H), (255, 255, 255))
     lp.paste(legend, (margin, margin))
     pages.append(lp)

@@ -1,7 +1,8 @@
-import { Navigate, Route, Routes } from "react-router-dom";
-import type { ReactNode } from "react";
+import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import type { MouseEvent, ReactNode } from "react";
 
 import { AuthProvider, useAuth } from "./hooks/useAuth";
+import { WorkbenchNavProvider, useWorkbenchNav } from "./hooks/useWorkbenchNav";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { WorkbenchPage } from "./pages/WorkbenchPage";
@@ -23,14 +24,32 @@ function GuestOnly({ children }: { children: ReactNode }) {
 
 function TopBar() {
   const { user, logout } = useAuth();
+  const { nav } = useWorkbenchNav();
+  const navigate = useNavigate();
   if (!user) return null;
+
+  // 离开工作台的所有出口都要过一遍"有没有未保存改动"
+  const leave = (then: () => void) => (e?: MouseEvent) => {
+    e?.preventDefault();
+    if (nav && !nav.confirmLeave()) return;
+    then();
+  };
+  const goHome = leave(() => navigate("/"));
+
   return (
     <header className="topbar">
-      <a href="/">拼豆图纸生成</a>
+      {nav ? (
+        <>
+          <button type="button" className="back" onClick={goHome}>← 返回首页</button>
+          <span className="crumb" title={nav.title}>{nav.title}</span>
+        </>
+      ) : (
+        <Link to="/" className="brand" onClick={goHome}>拼豆图纸生成</Link>
+      )}
       <span className="quota">
         {user.username} · AI 额度 {user.ai_quota - user.ai_used}/{user.ai_quota}
       </span>
-      <button type="button" onClick={() => void logout()}>退出</button>
+      <button type="button" onClick={leave(() => void logout())}>退出</button>
     </header>
   );
 }
@@ -38,13 +57,15 @@ function TopBar() {
 export function App() {
   return (
     <AuthProvider>
-      <TopBar />
-      <Routes>
-        <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />
-        <Route path="/" element={<Protected><ProjectsPage /></Protected>} />
-        <Route path="/p/:projectId" element={<Protected><WorkbenchPage /></Protected>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <WorkbenchNavProvider>
+        <TopBar />
+        <Routes>
+          <Route path="/login" element={<GuestOnly><LoginPage /></GuestOnly>} />
+          <Route path="/" element={<Protected><ProjectsPage /></Protected>} />
+          <Route path="/p/:projectId" element={<Protected><WorkbenchPage /></Protected>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </WorkbenchNavProvider>
     </AuthProvider>
   );
 }

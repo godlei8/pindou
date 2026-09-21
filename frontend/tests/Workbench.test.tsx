@@ -190,39 +190,62 @@ describe("画布缩放与当前颜色", () => {
   const waitForGrid = (c: HTMLElement) =>
     waitFor(() => expect(canvasWidth(c)).toBeGreaterThan(1));
 
-  test("默认跟随窗口自动适应", async () => {
-    vi.stubGlobal("fetch", routeFetch());
-    mount();
-    await waitFor(() => screen.getByRole("button", { name: "适应" }));
-    expect(screen.getByRole("button", { name: "适应" }).getAttribute("aria-pressed"))
-      .toBe("true");
+  /** 60×60 的图纸：回退预算 760×640 下「看全貌」算出 10px/格，「看色号」要 20px/格，
+   *  两个模式才分得开。2×2 的小图在哪个模式下都是封顶的 48px，测不出区别。 */
+  function bigGridFetch() {
+    const base = routeFetch();
+    const big = Array.from({ length: 60 }, (_, r) =>
+      Array.from({ length: 60 }, (_, c) => (r + c) % 2));
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/patterns/pat1") && !init?.method) {
+        return json({ ...makePattern("pat1"), grid: big });
+      }
+      return base(input, init);
+    });
+  }
+  const press = (name: string) =>
+    screen.getByRole("button", { name }).getAttribute("aria-pressed");
+
+  test("一进来就能看清色号——拼的时候要逐格对色号", async () => {
+    vi.stubGlobal("fetch", bigGridFetch());
+    const { container } = mount();
+    await waitFor(() => expect(canvasWidth(container)).toBe(60 * 20 + 1));
+    expect(press("看色号")).toBe("true");
+    expect(screen.getByText(/显示色号/)).toBeTruthy();
   });
 
-  test("缩小会让画布变小，并脱离自动适应", async () => {
-    vi.stubGlobal("fetch", routeFetch());
+  test("「看全貌」把整张塞进窗口，再点「看色号」放回来", async () => {
+    vi.stubGlobal("fetch", bigGridFetch());
     const { container } = mount();
-    await waitForGrid(container);
-    const before = canvasWidth(container);
+    await waitFor(() => expect(canvasWidth(container)).toBe(1201));
+
+    await userEvent.click(screen.getByRole("button", { name: "看全貌" }));
+    expect(canvasWidth(container)).toBe(60 * 10 + 1);
+    expect(press("看全貌")).toBe("true");
+    expect(press("看色号")).toBe("false");
+
+    await userEvent.click(screen.getByRole("button", { name: "看色号" }));
+    expect(canvasWidth(container)).toBe(1201);
+  });
+
+  test("手动缩放后两个预设都不再是按下态", async () => {
+    vi.stubGlobal("fetch", bigGridFetch());
+    const { container } = mount();
+    await waitFor(() => expect(canvasWidth(container)).toBe(1201));
 
     await userEvent.click(screen.getByRole("button", { name: "缩小" }));
 
-    expect(canvasWidth(container)).toBeLessThan(before);
-    expect(screen.getByRole("button", { name: "适应" }).getAttribute("aria-pressed"))
-      .toBe("false");
+    expect(canvasWidth(container)).toBeLessThan(1201);
+    expect(press("看色号")).toBe("false");
+    expect(press("看全貌")).toBe("false");
   });
 
-  test("点「适应」回到自动尺寸", async () => {
+  test("窗口够大时「看色号」不多余放大，就等于适应", async () => {
+    // 2×2 的小图：适应就已经封顶 48px，远超看清色号需要的 20px
     vi.stubGlobal("fetch", routeFetch());
     const { container } = mount();
     await waitForGrid(container);
-    const fitted = canvasWidth(container);
-
-    await userEvent.click(screen.getByRole("button", { name: "缩小" }));
-    await userEvent.click(screen.getByRole("button", { name: "适应" }));
-
-    expect(canvasWidth(container)).toBe(fitted);
-    expect(screen.getByRole("button", { name: "适应" }).getAttribute("aria-pressed"))
-      .toBe("true");
+    expect(canvasWidth(container)).toBe(2 * 48 + 1);
   });
 
   test("到最小档后「缩小」禁用，不会越界", async () => {

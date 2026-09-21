@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import { MAX_ZOOM, MIN_ZOOM, ZOOM_LADDER, zoomIn, zoomOut } from "../src/lib/zoom";
+import {
+  CODES_ZOOM, MAX_ZOOM, MIN_ZOOM, SHOW_CODES_MIN, ZOOM_LADDER, cellPxFor, zoomIn, zoomOut,
+} from "../src/lib/zoom";
 
 describe("缩放档位", () => {
   test("档位全是整数——像素图纸不能落在半格上", () => {
@@ -43,5 +45,28 @@ describe("缩放档位", () => {
       expect(zoomOut(zoomIn(v))).toBe(v);
       expect(zoomIn(zoomOut(v))).toBe(v);
     }
+  });
+});
+
+describe("缩放模式", () => {
+  test("色号档位能看清色号，且落在档位上", () => {
+    expect(CODES_ZOOM).toBeGreaterThanOrEqual(SHOW_CODES_MIN);
+    expect(ZOOM_LADDER).toContain(CODES_ZOOM);
+  });
+
+  test("默认的色号模式：窗口小时放大到看得清色号", () => {
+    expect(cellPxFor("codes", 9)).toBe(CODES_ZOOM);
+  });
+
+  test("默认的色号模式：窗口够大时就等于适应，不多余放大", () => {
+    expect(cellPxFor("codes", 30)).toBe(30);
+  });
+
+  test("适应模式就是适应", () => {
+    expect(cellPxFor("fit", 9)).toBe(9);
+  });
+
+  test("手动档位原样使用", () => {
+    expect(cellPxFor(14, 9)).toBe(14);
   });
 });

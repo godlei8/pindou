@@ -271,6 +271,18 @@ small { font-size: 12px; color: var(--ink-mute); display: block; }
   border: var(--bd) solid var(--ink);
 }
 .topbar .quota { margin-left: auto; color: var(--ink-mute); }
+
+/* 工作台里顶栏左侧换成「← 返回首页 / 项目名」。返回放左上是惯例位置；
+   项目名是工作台里唯一能看出"我在改哪张"的地方。 */
+.topbar .back { padding: var(--sp-1) var(--sp-3); box-shadow: 3px 3px 0 var(--ink); border-width: var(--bd); }
+.topbar .crumb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: var(--sp-3);
+  border-left: var(--bd) solid var(--peg);
+}
 .topbar button { padding: var(--sp-1) var(--sp-3); box-shadow: 3px 3px 0 var(--ink); border-width: var(--bd); }
 
 main { padding: var(--sp-6) var(--sp-4); }
