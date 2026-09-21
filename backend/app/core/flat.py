@@ -1,15 +1,15 @@
 """平涂插画：每格取原图自己的一种颜色，而不是几种颜色的平均。
 
 问题（2026-09-21，草莓样图）：原图描边 7px 宽、每格 8.3px——描边永远盖不满一格。
-按面积平均后，描边上每一格都是"墨色 + 红色"按不同比例混出来的颜色：
-51% 墨是 F6、71% 墨是 R22、墨 + 绿是 B12；草莓籽（黄）和红混成 G6/A14/P16。
-这些过渡色各自占掉一个色号，在图纸上表现为描边三种深红交替、每颗籽由四种颜色拼成。
-更糟的是没有一格是纯墨色，选色时根本选不到真正的墨色（H16），
-锁描边只好锁到"现有颜色里最深的"R13（一个灰色）。
+按面积平均后，描边上每一格都是"墨色 + 红色"按不同比例混出来的颜色，各自占掉一个色号：
+描边三种深红交替、每颗籽由四种颜色拼成；而且没有一格是纯墨色，选色时根本选不到真正的墨色。
 
-平涂插画本来就只有几种颜色，过渡色全是抗锯齿和缩小造成的。所以：
-先认出原图的几种"墨"，每格数一数哪种墨占得最多，就用那种墨的颜色。
-照片颜色是连续的，认不出几种墨，自动走原来的面积平均。
+平涂插画本来就只有几种颜色，过渡色全是抗锯齿和缩小造成的。所以分三步：
+1. **认墨**（detect_inks）：图是不是平涂的、有哪几种墨。照片、渐变插画认不出来，走原来的面积平均。
+2. **标像素**（label_source）：每个像素是哪种墨；抗锯齿的混色像素归到它旁边实际有的颜色。
+3. **取格**（downsample_inks）：初稿 + 直接按还原度逐格优化（core/refine.py）。
+   这一步没有"最深的颜色是描边"之类的特殊规则：线要连续、轮廓要闭合、高光要留、眼睛别撑胖，
+   都是"优化还原度 + 不许把同色区域断开"的自然结果，对什么颜色的线、什么样的小特征都一样。
 """
 from __future__ import annotations
 
@@ -30,17 +30,8 @@ INK_TOLERANCE = 0.04
 #: 这么多像素都是某种墨，才算平涂插画
 MIN_FLAT_SHARE = 0.9
 MAX_INKS = 24
-#: 描边（最深的那种墨）按"先多收、再削薄"取格（见 _line_cells）：
-#: 占一格面积 LINE_WEAK 以上的都先算候选；候选连成的一片里至少有一格占到 LINE_SHARE 才留
-#: （滤掉零星的深色噪点）；然后把不过半、去掉也不会让线断开的格子按占比从小到大削掉。
-#: 结果：线是连续的一颗宽，闭合的轮廓一定闭合；眼睛这类实心深色块不会被撑胖。
-#:
-#: 之前的做法是"占三成就算描边"：线正好骑在两格中间、两边各两成时两格都不算，
-#: 轮廓就断了，去掉背景后填充色直接挨着空白（猫样图 58 格：7 处）。
-LINE_SHARE = 0.3
-LINE_WEAK = 0.1
-#: 只有真的是"深色线"才这样照顾（OKLab 亮度）；没有描边的浅色插画不受影响
-LINE_MAX_L = 0.45
+#: 该空的填了、该填的空了，按这么大的色差算（和 core/fidelity.py 一致）
+SHAPE_PENALTY = 50.0
 #: 认墨时把图缩到这么大（最近邻，不产生新颜色）：4000² 的照片没必要逐像素看
 _DETECT_LONG_SIDE = 1024
 
@@ -66,11 +57,45 @@ def _small_rgb8(rgba: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return q, small[..., 3] >= 0.5
 
 
-def detect_inks(rgba: np.ndarray) -> np.ndarray | None:
-    """认出平涂插画的几种墨，返回 (k, 3) 的 sRGB（0–1）。不是平涂插画返回 None。
+#: 平涂的判据（2026-09-21 用多类型基准图重定）：
+#: ① 实心像素的颜色高度集中：离各自那种墨不超过 CORE_TOL 的要占实心像素的 MIN_CORE_SHARE。
+#:    渐变（苹果的高光、天空）的实心像素颜色是连续铺开的，过不了这一条——
+#:    原来只要求"离某种墨 0.04 以内"，而墨与墨只隔 0.05，一条渐变会被几种墨完全"解释"，
+#:    结果渐变苹果被当成平涂、拼出一圈圈色环。
+#: ② 全部像素的 MIN_FLAT_SHARE 要能解释成"某种墨"或"两种墨之间的抗锯齿混色"。
+#:    原来混色不算，线很细的线稿、128px 的小图抗锯齿像素占比高，被误判成照片。
+#: ③ 第二遍补认的墨（太细没有实心像素的线、小色块）总量不能超过 MAX_MISSED_MASS——
+#:    补墨是给小东西用的，大片都靠补墨才能解释的图不是平涂。
+CORE_TOL = 0.03                  # sRGB 0–1，每通道约 ±5 级：放得下 JPEG 噪点，放不下渐变
+#:    （0.06 不行：墨与墨隔 0.05 OKLab ≈ 0.1 sRGB，半径 0.06 的球正好把一条渐变铺满）
+MIN_CORE_SHARE = 0.85
+MIN_SOLID_SHARE = 0.05
+MAX_MISSED_MASS = 0.25
+#: 补认的墨：一团颜色里，挤在中心 _PEAK_TOL 以内的要占这么多（渐变是均匀铺开的，到不了）
+_PEAK_TOL = 0.025
+_OVERSHOOT = 0.25
+MIN_PEAK = 0.6
 
-    JPEG 压得很重的插画（色块里满是噪点）可能认不出来，会走原来的面积平均——
-    结果和改动前一样，不会更差。"""
+
+def _rgb_of(keys: np.ndarray) -> np.ndarray:
+    return np.stack([(keys >> 16) & 255, (keys >> 8) & 255, keys & 255], -1) / 255.0
+
+
+def _unexplained(u: np.ndarray, inks: np.ndarray) -> np.ndarray:
+    """每种颜色离"某种墨或两种墨的混色线段"有多远（sRGB 欧氏距离）。"""
+    best = np.linalg.norm(u[:, None] - inks[None], axis=-1).min(1)
+    for i in range(len(inks)):
+        for j in range(i + 1, len(inks)):
+            a, d = inks[i], inks[j] - inks[i]
+            # 线段两头各多出 _OVERSHOOT：缩放（Lanczos 等）会在边缘产生过冲，
+            # 比深色墨更深一点、比浅色墨更浅一点，仍然是这两种墨"混"出来的
+            t = np.clip((u - a) @ d / max(float(d @ d), 1e-12), -_OVERSHOOT, 1 + _OVERSHOOT)
+            best = np.minimum(best, np.linalg.norm(u - (a + t[:, None] * d), axis=1))
+    return best
+
+
+def detect_inks(rgba: np.ndarray) -> np.ndarray | None:
+    """认出平涂插画的几种墨，返回 (k, 3) 的 sRGB（0–1）。不是平涂插画返回 None。"""
     q, opaque = _small_rgb8(rgba)
     n = int(opaque.sum())
     if n < 64:
@@ -87,205 +112,183 @@ def detect_inks(rgba: np.ndarray) -> np.ndarray | None:
                 nb = qp[1 + dy:1 + dy + h, 1 + dx:1 + dx + w]
                 interior &= op[1 + dy:1 + dy + h, 1 + dx:1 + dx + w]
                 interior &= np.abs(nb - q).max(-1) <= _SAME
+    n_solid = int(interior.sum())
+    if n_solid < MIN_SOLID_SHARE * n:
+        return None                                       # 几乎没有平整的色块：照片
 
     qi = q[interior].astype(np.int64)
     keys, counts = np.unique((qi[:, 0] << 16) | (qi[:, 1] << 8) | qi[:, 2], return_counts=True)
     if len(keys) > _MAX_SOLID_COLORS:
         return None
-    rgb_keys = np.stack([(keys >> 16) & 255, (keys >> 8) & 255, keys & 255], -1) / 255.0
+    rgb_keys = _rgb_of(keys)
     ok_keys = srgb_to_oklab(rgb_keys.astype(np.float64))
 
     # 从最常见的颜色开始认墨；和已认出的墨很近的（同一种墨的抖动）把票数并过去
     ink_idx: list[int] = []
     ink_votes: list[int] = []
+    core = 0
     for i in np.argsort(-counts):
         if ink_idx:
             d = np.linalg.norm(ok_keys[ink_idx] - ok_keys[i], axis=1)
             j = int(d.argmin())
             if d[j] < INK_SEPARATION:
                 ink_votes[j] += int(counts[i])
+                if np.linalg.norm(rgb_keys[ink_idx[j]] - rgb_keys[i]) <= CORE_TOL:
+                    core += int(counts[i])
                 continue
         ink_idx.append(int(i))
         ink_votes.append(int(counts[i]))
+        core += int(counts[i])
+    if core < MIN_CORE_SHARE * n_solid:
+        return None                                       # 实心像素的颜色是铺开的：渐变
     min_solid = max(MIN_INK_INTERIOR_PX, MIN_INK_INTERIOR * n)
-    inks = [i for i, v in zip(ink_idx, ink_votes) if v >= min_solid]
-    if not 2 <= len(inks) <= MAX_INKS:
+    inks = [rgb_keys[i] for i, v in zip(ink_idx, ink_votes) if v >= min_solid]
+    if not 1 <= len(inks) <= MAX_INKS:
         return None
 
-    # 多少像素"就是某种墨"：抗锯齿过渡色不算。按不同颜色算，比逐像素快一个量级
     qa = q[opaque].astype(np.int64)
     akeys, acounts = np.unique((qa[:, 0] << 16) | (qa[:, 1] << 8) | qa[:, 2], return_counts=True)
-    ok_all = srgb_to_oklab(np.stack([(akeys >> 16) & 255, (akeys >> 8) & 255, akeys & 255],
-                                    -1).astype(np.float64) / 255.0)
-    dist = np.full(len(akeys), np.inf)
-    for i in inks:
-        dist = np.minimum(dist, np.linalg.norm(ok_all - ok_keys[i], axis=1))
-    if acounts[dist <= INK_TOLERANCE].sum() / n < MIN_FLAT_SHARE:
+    u = _rgb_of(akeys)
+    # 去掉的背景色不是墨，但图形边缘的抗锯齿像素是"某种墨 + 背景色"混出来的，解释混色时要算上它
+    extra = _background_color(q, opaque)
+    inks, missed_mass = _add_missed_inks(u, acounts, inks, n, extra)
+    if not 2 <= len(inks) <= MAX_INKS or missed_mass > MAX_MISSED_MASS * n:
         return None
-
-    ink_rgb = [rgb_keys[i] for i in inks]
-    ink_rgb += _missed_inks(akeys[dist > INK_TOLERANCE], acounts[dist > INK_TOLERANCE],
-                            np.array(ink_rgb), n)
-    if len(ink_rgb) > MAX_INKS:
+    best = _unexplained(u, np.array(inks + extra))
+    if acounts[best <= _BLEND_TOL].sum() < MIN_FLAT_SHARE * n:
         return None
-    return np.array(ink_rgb, dtype=np.float32)
+    return np.array(inks, dtype=np.float32)
 
 
-def _missed_inks(keys: np.ndarray, counts: np.ndarray, inks: np.ndarray, n: int) -> list:
-    """实心像素认不出来的小色块（见 _BLEND_TOL 的说明）。"""
-    if len(keys) == 0:
+def _background_color(q: np.ndarray, opaque: np.ndarray) -> list:
+    """透明区（去掉的背景）里最常见的颜色；透明区很小或没有就返回 []。"""
+    t = q[~opaque].astype(np.int64)
+    if len(t) < 0.02 * opaque.size:
         return []
-    u = np.stack([(keys >> 16) & 255, (keys >> 8) & 255, keys & 255], -1) / 255.0
-    best = np.linalg.norm(u[:, None] - inks[None], axis=-1).min(1)
-    for i in range(len(inks)):
-        for j in range(i + 1, len(inks)):
-            a, d = inks[i], inks[j] - inks[i]
-            t = np.clip((u - a) @ d / max(d @ d, 1e-12), 0, 1)
-            best = np.minimum(best, np.linalg.norm(u - (a + t[:, None] * d), axis=1))
-    found: list[np.ndarray] = []
-    for i in np.argsort(-counts):
-        if counts[i] < max(MISSED_INK_PX, MISSED_INK_SHARE * n):
+    keys, counts = np.unique((t[:, 0] << 16) | (t[:, 1] << 8) | t[:, 2], return_counts=True)
+    return [_rgb_of(keys[[int(counts.argmax())]])[0]]
+
+
+def _prune_blends(inks: list, extra: list, base: int) -> list:
+    kept = list(inks)
+    for m in inks[base:]:
+        others = [k for k in kept if k is not m] + extra
+        if len(others) >= 2 and _unexplained(np.array([m]), np.array(others))[0] <= _BLEND_TOL:
+            kept = [k for k in kept if k is not m]
+    return kept
+
+
+def _add_missed_inks(u: np.ndarray, counts: np.ndarray, inks: list, n: int,
+                     extra: list | None = None) -> tuple[list, int]:
+    """补认实心像素认不出来的墨：太细的线（2.5px 的线稿没有 3×3 的实心像素）、小图里的小色块。
+    条件：不是已有的墨、也不是两种墨的混色；一团颜色够多（MISSED_INK_SHARE）而且挤在一个点上。"""
+    inks, extra = list(inks), list(extra or [])
+    base = len(inks)                                      # 前 base 个是实心像素认出来的，不动
+    ok_u = srgb_to_oklab(u.astype(np.float64))
+    alive = np.ones(len(u), dtype=bool)
+    need = max(MISSED_INK_PX, MISSED_INK_SHARE * n)
+    mass_added = 0
+    for _ in range(3 * MAX_INKS):
+        # 离已有的墨不到 INK_SEPARATION 的是同一种墨的变化（缩放时线边上的过冲会比墨色更深一点），
+        # 不是新的墨——猫样图里它曾被认成"更深的一种墨"，把描边的逻辑整个带偏
+        ok_inks = srgb_to_oklab(np.array(inks, dtype=np.float64))
+        far = np.linalg.norm(ok_u[:, None] - ok_inks[None], axis=-1).min(1) >= INK_SEPARATION
+        cand = alive & far & (_unexplained(u, np.array(inks + extra)) > _BLEND_TOL)
+        if counts[cand].sum() < need or len(inks) > MAX_INKS:
             break
-        if best[i] <= _BLEND_TOL:
-            continue
-        if found and np.min(np.linalg.norm(np.array(found) - u[i], axis=1)) <= _BLEND_TOL:
-            continue
-        found.append(u[i])
-    return found
+        idx = np.flatnonzero(cand)
+        center = idx[int(counts[idx].argmax())]
+        d = np.linalg.norm(u[idx] - u[center], axis=1)
+        mass = int(counts[idx][d <= _BLEND_TOL].sum())
+        peak = int(counts[idx][d <= _PEAK_TOL].sum())
+        if mass >= need and peak >= MIN_PEAK * mass:
+            inks.append(u[center])
+            mass_added += mass
+        else:
+            alive[idx[d <= _PEAK_TOL]] = False            # 这一团不是墨，别再从它开始
+
+    # 补认是从"像素最多的颜色"开始的，可能先认了一个混色（线稿里线和白底之间的灰），
+    # 后来才认出线本身的颜色。回头清一遍：能被别的墨混出来的不是墨。
+    return _prune_blends(inks, extra, base), mass_added
 
 
-#: 原图里一块某种墨的色块，面积有这么多格就不该在图纸上消失（草莓籽、眼睛高光）
-MIN_FEATURE_CELLS = 0.4
-#: 只照顾小色块：大色块自然有它的格子
-MAX_FEATURE_CELLS = 2.0
-#: 取色时每格最多看这么多像素见方：更大的图先缩小，省内存也省时间
-_PX_PER_CELL = 12
+#: 取色时每格固定看这么多像素见方：大图缩小、小图平滑放大到同一个尺度，
+#: 后面的投票、优化、还原度都在这个尺度上算
+PX = 8
+#: 混色像素在这么多像素之内找"旁边实际有的颜色"
+_NEAR_PX = 3
 
 
-def _c8(nb: np.ndarray) -> int:
-    """3×3 邻域（中心不算）的 8-连通数（Yokoi）：1 = 去掉中心不改变连通性；
-    0 = 内部点或孤立点；≥2 = 去掉会把线断开。"""
-    x = [nb[1, 2], nb[0, 2], nb[0, 1], nb[0, 0], nb[1, 0], nb[2, 0], nb[2, 1], nb[2, 2]]
-    inv = [1 - int(v) for v in x]
-    return sum(inv[k] - inv[k] * inv[(k + 1) % 8] * inv[(k + 2) % 8] for k in (0, 2, 4, 6))
+def label_source(rgba: np.ndarray, rows: int, cols: int, inks: np.ndarray) -> np.ndarray:
+    """把原图变成"墨标签图"：每格 PX×PX 像素，每个像素是 0..k-1 的某种墨，k = 透明/背景。"""
+    import cv2
+    h, w = rgba.shape[:2]
+    tw, th = cols * PX, rows * PX
+    a = rgba[..., 3:4].astype(np.float32)
+    pre = np.concatenate([rgba[..., :3].astype(np.float32) * a, a], -1)   # 预乘，透明区颜色不渗进来
+    interp = cv2.INTER_AREA if tw * th <= w * h else cv2.INTER_CUBIC
+    pre = cv2.resize(pre, (tw, th), interpolation=interp)
+    alpha = np.clip(pre[..., 3], 0, 1)
+    rgb = np.clip(pre[..., :3] / np.maximum(alpha, 1e-6)[..., None], 0, 1)
+
+    k = len(inks)
+    ok = srgb_to_oklab(rgb.astype(np.float64))
+    ok_inks = srgb_to_oklab(inks.astype(np.float64))
+    d = np.linalg.norm(ok[..., None, :] - ok_inks[None, None], axis=-1)
+    label = d.argmin(-1)
+    transparent = alpha < 0.5
+    solid = (d.min(-1) <= INK_TOLERANCE) & ~transparent
+
+    # 抗锯齿的混色像素：只能归到它**旁边实际有的**那几种颜色里最像的一种（含背景）。
+    # 全局挑最像的会出错——"深棕描边 + 橙色"的混色最像鼻子的玫红，整圈轮廓会冒出玫红的豆；
+    # "浅蓝背景 + 深棕线"的混色最像眼睛的蓝。
+    near = np.stack([ndimage_dilate(solid & (label == i), _NEAR_PX) for i in range(k)], -1)
+    dm = np.where(near, d, np.inf)
+    q8 = np.clip(np.rint(rgba[..., :3] * 255), 0, 255).astype(np.int16)
+    bg = _background_color(q8, rgba[..., 3] >= 0.5)
+    if bg and transparent.any():
+        ok_bg = srgb_to_oklab(np.array(bg, dtype=np.float64))[0]
+        d_bg = np.where(ndimage_dilate(transparent, _NEAR_PX), np.linalg.norm(ok - ok_bg, axis=-1), np.inf)
+        dm = np.concatenate([dm, d_bg[..., None]], -1)       # 第 k 个候选 = 背景
+        # 紧挨透明区、比任何墨都更像背景的像素就是没去干净的背景——哪怕它"够像"某种墨
+        # （蘑菇的米色菌柄和浅绿背景很接近，描边外残留的背景像素会被当成米色，
+        #  于是"米色挨着空白"在原图里成立，轮廓就不保证闭合了）
+        solid &= ~(d_bg < d.min(-1))
+    mixed = ~solid & ~transparent & np.isfinite(dm).any(-1)
+    # 从后往前取最小：并列时选背景（文字和背景同色的 logo，边缘的光晕应该算背景不算文字）
+    chosen = dm.shape[-1] - 1 - dm[mixed][:, ::-1].argmin(-1)
+    # 例外：旁边的候选都差得远、而全局有一种墨几乎就是它——那是一条细到没有"实打实"像素的线
+    # （2.5px 的花茎画在白底上，旁边只有背景可选，整条线会被归成背景）。差三倍以上才算"差得远"，
+    # 不然上面说的"描边 + 橙 ≈ 玫红"又会回来。
+    override = d[mixed].min(-1) < dm[mixed].min(-1) / 3.0
+    label[mixed] = np.where(override, d[mixed].argmin(-1), chosen)
+    label[transparent] = k
+    return label
 
 
-def _line_cells(share: np.ndarray) -> np.ndarray:
-    """share: (rows, cols) 每格里描边墨占整格面积的比例。返回哪些格子算描边。"""
+def ndimage_dilate(mask: np.ndarray, r: int) -> np.ndarray:
     from scipy import ndimage
-    cand = share >= LINE_WEAK
-    comp, n = ndimage.label(cand, structure=np.ones((3, 3), int))
-    if n == 0:
-        return cand
-    peak = ndimage.maximum(share, comp, index=np.arange(1, n + 1))
-    keep = np.zeros(n + 1, dtype=bool)
-    keep[1:] = peak >= LINE_SHARE - 1e-9
-    line = keep[comp]
-
-    rows, cols = share.shape
-    padded = np.pad(line, 1)
-    weak = np.argwhere(line & (share < 0.5))
-    for r, c in weak[np.argsort(share[weak[:, 0], weak[:, 1]], kind="stable")]:
-        nb = padded[r:r + 3, c:c + 3]
-        # 线头（只有一个邻居）不削：不然细线会从头被一格一格吃光
-        if nb.sum() - 1 >= 2 and _c8(nb) == 1:
-            padded[r + 1, c + 1] = False
-    return padded[1:-1, 1:-1]
+    return ndimage.maximum_filter(mask.astype(np.uint8), size=2 * r + 1) > 0
 
 
 def downsample_inks(rgba: np.ndarray, rows: int, cols: int, inks: np.ndarray,
                     coverage: np.ndarray) -> CellImage:
-    """每格取占像素最多的那种墨；深色描边单独取格（_line_cells）；小色块至少留一格。
-    coverage 沿用面积平均算出来的。"""
-    import cv2
-    from scipy import ndimage
+    """平涂取色：初稿"每格谁多用谁"，然后直接按还原度逐格优化（core/refine.py）。"""
+    from app.core.color import delta_e_2000, srgb_to_lab
+    from app.core.refine import Objective, refine, thin_first_init
 
-    h, w = rgba.shape[:2]
-    limit = _PX_PER_CELL * max(rows, cols)
-    if max(h, w) > limit:
-        s = limit / max(h, w)
-        rgba = cv2.resize(rgba, (max(cols, round(w * s)), max(rows, round(h * s))),
-                          interpolation=cv2.INTER_AREA)
-        h, w = rgba.shape[:2]
-    ok = srgb_to_oklab(rgba[..., :3].astype(np.float64))
-    ok_inks = srgb_to_oklab(inks.astype(np.float64))
-    # 每个像素归到最近的墨：抗锯齿过渡色归到它更像的那一边
-    label = np.empty((h, w), dtype=np.int16)
-    solid = np.empty((h, w), dtype=bool)                # 颜色确实就是那种墨，不是抗锯齿过渡色
-    for y0 in range(0, h, 128):
-        d = np.linalg.norm(ok[y0:y0 + 128][..., None, :] - ok_inks[None, None], axis=-1)
-        label[y0:y0 + 128] = d.argmin(-1)
-        solid[y0:y0 + 128] = d.min(-1) <= INK_TOLERANCE
-    label[rgba[..., 3] < 0.5] = -1                      # 去掉的背景不参与投票
-
-    ys = np.minimum((np.arange(h) * rows) // h, rows - 1)
-    xs = np.minimum((np.arange(w) * cols) // w, cols - 1)
-    cell = ys[:, None] * cols + xs[None, :]
     k = len(inks)
-    votes = np.zeros((rows * cols, k + 1), dtype=np.int64)
-    np.add.at(votes, (cell.ravel(), label.ravel() + 1), 1)
-    transparent, counts = votes[:, 0], votes[:, 1:].copy()
-    area = np.maximum(votes.sum(1), 1)
+    src = label_source(rgba, rows, cols, inks)
+    votes = (src.reshape(rows, PX, cols, PX)[..., None] == np.arange(k + 1)).sum((1, 3))
+    init = thin_first_init(votes, src, k, PX)
 
-    darkest = int(np.argmin(ok_inks[:, 0]))
-    line = np.zeros(rows * cols, dtype=bool)
-    if ok_inks[darkest, 0] < LINE_MAX_L:
-        line = _line_cells((counts[:, darkest] / area).reshape(rows, cols)).ravel()
-        counts[:, darkest] = 0                          # 其余格子在剩下的墨里比多少
-    winner = counts.argmax(1)
-    # 填豆还是留空：描边一定填；其余看"颜色"和"透明"谁多。没有描边墨的格子，这就是覆盖率过半
-    mask = line | ((counts.sum(1) > 0) & (counts.sum(1) >= transparent))
-    winner[line] = darkest
+    lab = srgb_to_lab(inks.astype(np.float64))
+    cost = np.full((k + 1, k + 1), SHAPE_PENALTY)
+    cost[:k, :k] = delta_e_2000(lab[:, None, :], lab[None, :, :])
+    cost[k, k] = 0.0
+    out = refine(Objective(src, k, cost, PX), init)
 
-    # 小色块跨在几格的交界上，每格都不过半，按"谁多用谁"会整块消失（草莓籽、眼睛高光）。
-    # 面积够大的色块如果一格都没分到，就把它占得最多的那格给它。
-    # 描边的格子一般不抢——除非它在实心深色块里面、去掉不会让线断开（眼睛里的高光就是这样）。
-    cell_px = h * w / (rows * cols)
-    line2d = np.pad(line.reshape(rows, cols), 1)
-    for ink in range(k):
-        if ink == darkest and line.any():
-            continue
-        # 只认实打实是这种墨的像素：去背景后描边外面残留的一圈抗锯齿光晕会被归到某种浅色墨，
-        # 它又细又长、面积正好像个"小色块"，会在轮廓外面凭空多出一颗豆（蘑菇样图 80 格）
-        comp, n = ndimage.label((label == ink) & solid)
-        if n == 0:
-            continue
-        sizes = np.bincount(comp.ravel())
-        for cid, sl in enumerate(ndimage.find_objects(comp), start=1):
-            if sl is None or not (MIN_FEATURE_CELLS * cell_px <= sizes[cid]
-                                  <= MAX_FEATURE_CELLS * cell_px):
-                continue
-            cells = cell[sl][comp[sl] == cid]
-            ids, c = np.unique(cells, return_counts=True)
-            if (mask[ids] & (winner[ids] == ink)).any():
-                continue
-            for i in ids[np.argsort(-c, kind="stable")]:
-                r, cc = divmod(int(i), cols)
-                nb = line2d[r:r + 3, cc:cc + 3]
-                if line[i] and (nb.sum() - 1 < 2 or _c8(nb) > 1):
-                    continue                            # 细线的一环、线头、孤立的深色点：不能抢
-                winner[i], mask[i], line[i] = ink, True, False
-                line2d[r + 1, cc + 1] = False
-                break
-
-    # 保险：填充色上下左右直接挨着空白、而原图那里其实有描边——两格里描边多的那格补成描边
-    if line.any():
-        share = votes[:, 1 + darkest] / area
-        m2, l2, s2 = mask.reshape(rows, cols), line.reshape(rows, cols), share.reshape(rows, cols)
-        w2 = winner.reshape(rows, cols)
-        for dr, dc in ((0, 1), (1, 0)):
-            a = (slice(0, rows - dr), slice(0, cols - dc))
-            b = (slice(dr, rows), slice(dc, cols))
-            for fill, empty in ((a, b), (b, a)):
-                bad = m2[fill] & ~l2[fill] & ~m2[empty] & (np.maximum(s2[fill], s2[empty]) >= 0.03)
-                if not bad.any():
-                    continue
-                use_fill = s2[fill] >= s2[empty]
-                for side, pick in ((fill, bad & use_fill), (empty, bad & ~use_fill)):
-                    m2[side][pick] = True
-                    l2[side][pick] = True
-                    w2[side][pick] = darkest
-
-    rgb = inks[winner].reshape(rows, cols, 3).astype(np.float32)
-    return CellImage(rgb=rgb, coverage=coverage, mask=mask.reshape(rows, cols),
-                     inks=inks[np.unique(winner[mask])])
+    mask = out != k
+    rgb = inks[np.where(mask, out, 0)].astype(np.float32)
+    used = np.unique(out[mask])
+    return CellImage(rgb=rgb, coverage=coverage, mask=mask, inks=inks[used])

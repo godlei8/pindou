@@ -84,25 +84,38 @@ def test_cells_only_take_source_inks_not_mixtures():
     assert len(np.unique(np.round(area.rgb.reshape(-1, 3), 2), axis=0)) > 3 * len(inks)
 
 
-def test_a_dark_line_wins_a_cell_it_covers_by_a_third():
-    """深色描边比格子窄；按"谁多用谁"会断成一截一截。"""
-    rgba = np.ones((10, 10, 4), np.float32)
-    rgba[..., :3] = np.array(RED) / 255
-    rgba[:, :3, :3] = np.array(INK) / 255              # 左边 30% 是描边
-    inks = np.array([RED, INK], np.float32) / 255
-    cells = flat.downsample_inks(rgba, 1, 1, inks, np.ones((1, 1), np.float32))
-    assert np.allclose(cells.rgb[0, 0], inks[1])
+def _cells(paint, base, inks, size=80, grid=10):
+    rgba = np.ones((size, size, 4), np.float32)
+    rgba[..., :3] = np.array(base) / 255
+    paint(rgba)
+    arr = np.array(inks, np.float32) / 255
+    return flat.downsample_inks(rgba, grid, grid, arr, np.ones((grid, grid), np.float32)), arr
 
 
-def test_a_light_color_gets_no_line_priority():
-    """没有深色描边的浅色插画：还是谁多用谁。"""
-    pink, cream = (255, 200, 210), CREAM
-    rgba = np.ones((10, 10, 4), np.float32)
-    rgba[..., :3] = np.array(cream) / 255
-    rgba[:, :3, :3] = np.array(pink) / 255              # 30%：不到"小色块至少留一格"的面积
-    inks = np.array([cream, pink], np.float32) / 255
-    cells = flat.downsample_inks(rgba, 1, 1, inks, np.ones((1, 1), np.float32))
-    assert np.allclose(cells.rgb[0, 0], inks[0])
+def test_a_thin_dark_line_is_kept_and_continuous():
+    """线比格子窄得多（每格只占三成）：按"谁多用谁"一格都拿不到，整条线会消失。"""
+    def paint(rgba):
+        rgba[:, 34:37, :3] = np.array(INK) / 255             # 3px 的竖线，一格 8px
+    cells, inks = _cells(paint, RED, [RED, INK])
+    dark = np.isclose(cells.rgb, inks[1]).all(-1)
+    assert dark[:, 4].all() and dark.sum() == 10
+
+
+def test_a_thin_light_line_is_kept_too():
+    """不只是深色线：深底上的浅色细线一样要留住（没有"最深的颜色才是描边"这种特例）。"""
+    def paint(rgba):
+        rgba[:, 34:37, :3] = np.array(CREAM) / 255
+    cells, inks = _cells(paint, INK, [INK, CREAM])
+    light = np.isclose(cells.rgb, inks[1]).all(-1)
+    assert light[:, 4].all() and light.sum() == 10
+
+
+def test_a_small_feature_straddling_cells_keeps_a_cell():
+    """一块半格多的黄色跨在四格交界上，每格都只有一成多——按"谁多用谁"会整块消失。"""
+    def paint(rgba):
+        rgba[37:43, 37:43, :3] = np.array(YELLOW) / 255      # 36 px，每格只分到 9 px
+    cells, inks = _cells(paint, RED, [RED, YELLOW])
+    assert np.isclose(cells.rgb, inks[1]).all(-1).sum() == 1
 
 
 # ---- 整条流水线 --------------------------------------------------------------------
@@ -128,17 +141,6 @@ def test_no_transition_colors_eat_palette_slots(pal):
     res = _run(pal, small_color_threshold=0)
     assert len(res.color_stats) == 3                     # 红、墨、黄（奶油底已去掉）
     assert res.report.confetti_pct < 5
-
-
-def test_a_small_feature_straddling_cells_keeps_a_cell():
-    """一块半格多的黄色跨在四格交界上，每格都只有一成多——按"谁多用谁"会整块消失。"""
-    rgba = np.ones((16, 16, 4), np.float32)
-    rgba[..., :3] = np.array(RED) / 255
-    rgba[5:11, 5:11, :3] = np.array(YELLOW) / 255      # 36 px（半格多），每格只分到 9 px
-    inks = np.array([RED, YELLOW], np.float32) / 255
-    cells = flat.downsample_inks(rgba, 2, 2, inks, np.ones((2, 2), np.float32))
-    yellow = np.isclose(cells.rgb, inks[1]).all(-1)
-    assert yellow.sum() == 1
 
 
 def test_seeds_are_a_single_color(pal):

@@ -24,17 +24,43 @@ def _load(image) -> np.ndarray:
     return np.asarray(image, dtype=np.float32)
 
 
+#: 原图太小（每格不到这么多像素）时先平滑放大。128px 的图出 58 格，每格只有 2 个像素，
+#: 抗锯齿像素和实打实的颜色一样多，逐像素投票的结果边缘毛糙、冒杂色。
+MIN_PX_PER_CELL = 4
+BORDER_TOLERANCE = 0.05
+
+
+def _upscale_small(rgba: np.ndarray, long_side: int) -> np.ndarray:
+    h, w = rgba.shape[:2]
+    factor = int(np.ceil(MIN_PX_PER_CELL * long_side / max(h, w)))
+    if factor <= 1:
+        return rgba
+    up = cv2.resize(rgba.astype(np.float32), (w * factor, h * factor), interpolation=cv2.INTER_CUBIC)
+    return np.clip(up, 0.0, 1.0)
+
+
+def _detect_flat(rgba: np.ndarray, long_side: int):
+    """认墨，返回 (墨, 取色用的图)。只有平涂图才放大：照片按面积平均，放大只会更糊（实测还原度 -0.7）。
+    先在原图上认（放大会把小色块的颜色抹花，认不出来），认不出再在放大的图上试一次（细线放大后才有实心像素）。"""
+    up = _upscale_small(rgba, long_side)
+    inks = flat.detect_inks(rgba)
+    if inks is None and up is not rgba:
+        inks = flat.detect_inks(up)
+    return inks, (up if inks is not None else rgba)
+
+
 def _downsample(rgba: np.ndarray, params: Params):
+    """返回 (格子, 类型, 实际用来取色的图)。"""
     info = detect.detect_pixel_grid(rgba)
     if info is not None:
-        return downsample.downsample_mode(rgba, info), "pixel_art"
+        return downsample.downsample_mode(rgba, info), "pixel_art", rgba
+    inks, rgba = _detect_flat(rgba, params.grid_long_side)
     rows, cols = downsample.grid_shape(rgba.shape[0], rgba.shape[1], params.grid_long_side)
     cells = downsample.downsample_area(rgba, rows, cols)
     # 平涂插画：每格取原图自己的一种颜色，不要抗锯齿和缩小混出来的过渡色（见 core/flat.py）
-    inks = flat.detect_inks(rgba)
     if inks is not None:
         cells = flat.downsample_inks(rgba, rows, cols, inks, cells.coverage)
-    return cells, "image"
+    return cells, "image", rgba
 
 
 def _flat_palette(cells, palette: Palette, max_colors: int) -> np.ndarray | None:
@@ -58,7 +84,11 @@ def _prepare(image, params: Params) -> np.ndarray:
                                             params.background_tolerance)
     if params.remove_background:
         # 边缘一圈是纯色时，把和边缘连通的那片背景去掉、不填豆；照片边缘不统一，自动跳过
-        rgba, _ = background.remove_border_background(rgba, params.background_tolerance)
+        # 容差收紧到 BORDER_TOLERANCE：默认的 0.08 是给"点一下选背景"用的，自动去背景用它会把
+        # 挨着白底的浅色也当成背景吃掉（彩虹旁边的浅蓝云朵整个消失）。边缘的抗锯齿过渡不靠容差，
+        # 取色时会归回背景（flat.label_source）。
+        rgba, _ = background.remove_border_background(
+            rgba, min(params.background_tolerance, BORDER_TOLERANCE))
     return rgba
 
 
@@ -66,7 +96,10 @@ def measure_fidelity(image, params: Params, grid: np.ndarray, palette: Palette) 
     """给一张已有的图纸（比如手改过的）重新算还原度。算不了返回 None，不拖垮别的流程。"""
     try:
         rgba = _prepare(image, params)
-        inks = None if detect.detect_pixel_grid(rgba) is not None else flat.detect_inks(rgba)
+        if detect.detect_pixel_grid(rgba) is not None:
+            inks = None
+        else:
+            inks, rgba = _detect_flat(rgba, params.grid_long_side)
         return fidelity.measure(rgba, grid, palette.rgb, inks)
     except Exception:
         return None
@@ -76,7 +109,7 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
     palette = palette or Palette.load(params.palette_id)
     rgba = _prepare(image, params)
 
-    cells, kind = _downsample(rgba, params)
+    cells, kind, rgba = _downsample(rgba, params)
     rows, cols = cells.mask.shape
     grid = np.full((rows, cols), EMPTY, dtype=np.int16)
     if not cells.mask.any():

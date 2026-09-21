@@ -6,13 +6,16 @@
 
 两种图两种比法（2026-09-21 试出来的，数据见 spec「还原度」）：
 
-**平涂插画按色块比**（measure 传了 inks）。原图每个像素归到它那种墨，然后双向检查：
-原图的每一点，半格之内的图纸上有没有这种颜色的豆；图纸的每一点，半格之内的原图上有没有这种墨。
-没有就按两种颜色的 ΔE2000 记误差（该空的填了、该填的空了按 SHAPE_PENALTY）。
-半格的宽容是因为一格只能一个颜色，线画在左边一格还是右边一格不算错；
-线断了、高光丢了、眼睛胖一圈、冒出原图没有的过渡色，都会被记下来。
-不能用"模糊后逐点比颜色"：那种指标数学上偏爱取平均，会给"描边三种深红交替"打更高的分
-（试过：草莓 87 对 80）。
+**平涂插画按色块比**（measure 传了 inks）。误差的定义在 core/refine.py 的 Objective 里，
+取色时优化的就是它——打分的和优化的是同一个东西：
+  · 原图的每一点：它那种颜色的豆最好就在自己这格；要靠邻格来"代为解释"，加一点代价（SLOP）；
+    半格之内都没有，按两种颜色的 ΔE2000 记（线断了、高光丢了）。
+  · 图纸的每一点：原图里这种颜色离得越远罚得越多；一格之内只是"线粗了一点"，轻罚；
+    一格之外才有，重罚（冒出了原图那里没有的颜色）。
+  · 原图的东西图纸上没有，比图纸上多出东西更伤还原度（0.65 : 0.35）。
+走过的弯路：① "半格之内有这种颜色就算对"——隔一格放一颗的虚线、中间掏空的线都算全对，
+优化器会忠实地钻这个空子；② "模糊后逐点比颜色"——数学上偏爱取平均，
+会给"描边三种深红交替"打更高的分（试过：草莓 87 对 80）。
 
 **照片按远看比**（没有 inks）。原图和图纸都铺白底、模糊掉约一颗豆的细节，逐点比 ΔE2000。
 照片本来就靠相近颜色的混合来表现，取平均是对的。
@@ -46,8 +49,6 @@ def _on_white_blurred(rgb: np.ndarray, alpha: np.ndarray, sigma: float) -> np.nd
 
 #: 平涂比法：该空的填了、该填的空了，按这么大的色差算
 SHAPE_PENALTY = 50.0
-#: 平涂比法：找对应颜色的宽容半径，单位：格
-REACH_CELLS = 0.5
 
 
 def _summary(e: np.ndarray, method: str) -> dict:
@@ -63,35 +64,25 @@ def _summary(e: np.ndarray, method: str) -> dict:
     }
 
 
-def _measure_flat(src_rgb, src_a, big, palette_rgb, inks) -> dict:
-    from app.core.color import srgb_to_oklab
+def _measure_flat(rgba, grid, palette_rgb, inks) -> dict:
+    """平涂比法：误差的定义在 core/refine.py 的 Objective 里，和取色时优化的是同一个。"""
+    from app.core.flat import PX, label_source
+    from app.core.refine import Objective
+    rows, cols = grid.shape
     k = len(inks)
-    ok = srgb_to_oklab(src_rgb.astype(np.float64))
-    ok_inks = srgb_to_oklab(inks.astype(np.float64))
-    src = np.linalg.norm(ok[..., None, :] - ok_inks[None, None], axis=-1).argmin(-1)
-    src[src_a < 0.5] = k                                   # k = 透明
-    colors = [int(c) for c in np.unique(big) if c != EMPTY]
-    pat = np.full(big.shape, len(colors), dtype=np.int64)  # len(colors) = 空
+    src = label_source(rgba, rows, cols, inks)
+    colors = [int(c) for c in np.unique(grid) if c != EMPTY]
+    pat = np.full(grid.shape, len(colors), dtype=np.int64)
     for j, c in enumerate(colors):
-        pat[big == c] = j
-
-    d = np.full((k + 1, len(colors) + 1), SHAPE_PENALTY)
-    d[k, len(colors)] = 0.0
-    if colors:
-        d[:k, :len(colors)] = delta_e_2000(
-            srgb_to_lab(inks.astype(np.float64))[:, None, :],
-            srgb_to_lab(palette_rgb[colors] / 255.0)[None, :, :])
-
-    r = max(1, int(round(REACH_CELLS * _PX_PER_CELL)))
-    disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
-    near_pat = np.stack([cv2.dilate((pat == j).astype(np.uint8), disc) > 0
-                         for j in range(len(colors) + 1)], -1)
-    near_src = np.stack([cv2.dilate((src == i).astype(np.uint8), disc) > 0
-                         for i in range(k + 1)], -1)
-    e_src = np.where(near_pat, d[src], np.inf).min(-1)     # 原图这一点，附近的图纸上最像的豆
-    e_pat = np.where(near_src, d.T[pat], np.inf).min(-1)   # 图纸这一点，附近的原图上最像的墨
-    region = (src != k) | (pat != len(colors))
-    return _summary(((e_src + e_pat) / 2)[region], "flat")
+        pat[grid == c] = j
+    cost = np.full((k + 1, len(colors) + 1), SHAPE_PENALTY)
+    cost[k, len(colors)] = 0.0
+    cost[:k, :len(colors)] = delta_e_2000(
+        srgb_to_lab(inks.astype(np.float64))[:, None, :],
+        srgb_to_lab(palette_rgb[colors] / 255.0)[None, :, :])
+    e = Objective(src, k, cost, PX).error_map(pat)
+    region = (src != k).reshape(2 * rows, PX // 2, 2 * cols, PX // 2).any((1, 3))         | np.repeat(np.repeat(pat != len(colors), 2, 0), 2, 1)
+    return _summary(e[region], "flat")
 
 
 def measure(rgba: np.ndarray, grid: np.ndarray, palette_rgb: np.ndarray,
@@ -101,6 +92,8 @@ def measure(rgba: np.ndarray, grid: np.ndarray, palette_rgb: np.ndarray,
     rows, cols = grid.shape
     if not (grid != EMPTY).any():
         return None
+    if inks is not None:
+        return _measure_flat(rgba, grid, palette_rgb, inks)
     # 原图缩放到每格 _PX_PER_CELL 像素（预乘 alpha，免得透明区的颜色渗进来）
     w, h = cols * _PX_PER_CELL, rows * _PX_PER_CELL
     a = rgba[..., 3:4].astype(np.float32)
@@ -110,8 +103,6 @@ def measure(rgba: np.ndarray, grid: np.ndarray, palette_rgb: np.ndarray,
     src_rgb = pre[..., :3] / np.maximum(src_a, 1e-6)[..., None]
 
     big = np.kron(grid, np.ones((_PX_PER_CELL, _PX_PER_CELL), dtype=grid.dtype))
-    if inks is not None:
-        return _measure_flat(src_rgb, src_a, big, palette_rgb, inks)
     pat_a = (big != EMPTY).astype(np.float32)
     pat_rgb = (palette_rgb[np.where(big == EMPTY, 0, big)] / 255.0).astype(np.float32)
 
