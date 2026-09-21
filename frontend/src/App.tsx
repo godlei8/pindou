@@ -69,7 +69,7 @@ function TopBar() {
           <span className="crumb" title={nav.title}>{nav.title}</span>
         </>
       ) : (
-        <Link to="/" className="brand" onClick={goHome}>拼豆图纸生成</Link>
+        <Link to="/" className="brand" onClick={goHome}>豆格格</Link>
       )}
       {/* 管理入口只给管理员；在后台里就不再显示自己 */}
       {user.is_admin && !inAdmin && (

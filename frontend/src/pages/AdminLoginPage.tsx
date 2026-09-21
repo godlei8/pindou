@@ -32,7 +32,7 @@ export function AdminLoginPage() {
       <div className="auth-card">
         <p className="auth-admin-badge" aria-hidden="true">ADMIN</p>
         <h1 className="auth-title">管理后台</h1>
-        <p className="auth-sub">拼豆图纸生成 · 仅限管理员</p>
+        <p className="auth-sub">豆格格 · 仅限管理员</p>
 
         <form onSubmit={submit} className="auth-form">
           <label htmlFor="admin-username">管理员账号</label>

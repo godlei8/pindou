@@ -492,6 +492,16 @@ const w = node.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingR
 
 ---
 
+### 9.1 品牌：豆格格
+
+- **名字**：「豆格格」——豆是拼豆，格是图纸上的一格；叠字「格格」俏皮，也像笑声「咯咯」。
+  浏览器标签页写「豆格格 · 拼豆图纸」，顶栏和登录页标题写「豆格格」，副标题交代用途「拼豆图纸生成」。
+  两个字都在 Fusion Pixel 子集里，不会回退成系统字体。
+- **图标**：一颗顶着豆芽的胖红豆，16×16 真像素画。豆身 F2、描边 H16、叶 B5、高光 H2，
+  腮红 #FF9FB0 只在图标里用。源头是 `backend/scripts/make_favicon.py` 里的字符画，
+  改图改那里再跑一遍，生成 `frontend/public/` 下的 favicon.svg / .ico、apple-touch-icon、icon-192/512。
+  SVG 用 `shape-rendering="crispEdges"`，任何缩放都是方格。
+
 ## 10. 不要做的事
 
 | 不要 | 因为 |

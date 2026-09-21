@@ -93,8 +93,8 @@ export function LoginPage() {
       <div className="auth-card">
         <Sprite fused={fused} />
 
-        <h1 className="auth-title">拼豆图纸生成</h1>
-        <p className="auth-sub">把图片变成能拼的图纸</p>
+        <h1 className="auth-title">豆格格</h1>
+        <p className="auth-sub">拼豆图纸生成 · 把图片变成能拼的图纸</p>
 
         <form onSubmit={submit} className="auth-form">
           <label htmlFor="username">用户名</label>
