@@ -17,17 +17,25 @@ def _edges(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return p, q
 
 
-def energy(cost: np.ndarray, mask: np.ndarray, labels: np.ndarray, smoothness: float) -> float:
+def energy(cost: np.ndarray, mask: np.ndarray, labels: np.ndarray, smoothness: float,
+           edge_weight: np.ndarray | None = None) -> float:
     r, c = np.nonzero(mask)
     data = cost[r, c, labels[r, c]].sum()
     p, q = _edges(mask)
     flat = labels.ravel()
-    pair = smoothness * (flat[p] != flat[q]).sum()
+    w = smoothness if edge_weight is None else smoothness * edge_weight
+    pair = (w * (flat[p] != flat[q])).sum()
     return float(data + pair)
 
 
 def assign_labels(cost: np.ndarray, mask: np.ndarray, smoothness: float,
-                  locked: np.ndarray | None = None, n_sweeps: int = 3) -> np.ndarray:
+                  locked: np.ndarray | None = None, n_sweeps: int = 3,
+                  edge_weight: np.ndarray | None = None) -> np.ndarray:
+    """α-expansion 图割。
+
+    edge_weight：每条边的平滑强度倍数（顺序同 _edges(mask)），不给就全是 1——
+    和原来完全一样。用来给五官"开小灶"：五官周围原图反差明显的边罚得轻，
+    单格瞳孔、鼻孔就不会被当成杂点抹掉。倍数必须 ≥ 0，Potts 模型下 α-expansion 仍然成立。"""
     rows, cols, k = cost.shape
     cost = cost.astype(np.float64).copy()
     if locked is not None:
@@ -41,10 +49,13 @@ def assign_labels(cost: np.ndarray, mask: np.ndarray, smoothness: float,
         return labels
 
     p, q = _edges(mask)
+    if edge_weight is not None and len(edge_weight) != len(p):
+        raise ValueError(f"edge_weight 长度 {len(edge_weight)} 与边数 {len(p)} 不符")
+    lam = smoothness if edge_weight is None else smoothness * np.asarray(edge_weight, float)
     flat_mask = mask.ravel()
     flat_cost = cost.reshape(-1, k)
     node_ix = np.arange(rows * cols)
-    cur_energy = energy(cost, mask, labels, smoothness)
+    cur_energy = energy(cost, mask, labels, smoothness, edge_weight)
 
     for _ in range(n_sweeps):
         improved = False
@@ -53,9 +64,9 @@ def assign_labels(cost: np.ndarray, mask: np.ndarray, smoothness: float,
             U0 = np.where(flat_mask, flat_cost[node_ix, np.maximum(f, 0)], 0.0)
             U1 = np.where(flat_mask, cost[..., alpha].ravel(), 0.0)
             U1 = np.where(f == alpha, U0, U1).copy()
-            A = smoothness * (f[p] != f[q])
-            B = smoothness * (f[p] != alpha)
-            C = smoothness * (alpha != f[q])
+            A = lam * (f[p] != f[q])
+            B = lam * (f[p] != alpha)
+            C = lam * (alpha != f[q])
             np.add.at(U1, p, C - A)
             np.add.at(U1, q, -C)             # D - C，D = 0
             w = B + C - A                    # Potts 下 >= 0
@@ -69,7 +80,7 @@ def assign_labels(cost: np.ndarray, mask: np.ndarray, smoothness: float,
             new = f.copy()
             new[switch] = alpha
             new_labels = new.reshape(rows, cols)
-            e = energy(cost, mask, new_labels, smoothness)
+            e = energy(cost, mask, new_labels, smoothness, edge_weight)
             if e < cur_energy - 1e-9:
                 labels, cur_energy, improved = new_labels, e, True
         if not improved:

@@ -88,3 +88,24 @@ test("还没出图时不显示尺寸读数", () => {
     <ParamPanel current={null} params={DEFAULT_PARAMS} sizes={[]} onChange={() => {}} />);
   expect(container.querySelector(".size-readout")).toBeNull();
 });
+
+test("脸太小时给出提示，一键调到建议格数", async () => {
+  const onChange = vi.fn();
+  render(<ParamPanel current={{ rows: 56, cols: 58 }} params={DEFAULT_PARAMS} sizes={[]}
+                     faceHint={{ cells_wide: 21, min_cells: 30, too_small: true, suggested_long_side: 83 }}
+                     onChange={onChange} />);
+  expect(screen.getByRole("note").textContent).toContain("只有 21 格宽");
+  await userEvent.click(screen.getByRole("button", { name: "长边调到 83 格" }));
+  expect(onChange.mock.calls.at(-1)![0].grid_long_side).toBe(83);
+});
+
+test("脸够大、或者没检测到人脸时不提示", () => {
+  const { rerender } = render(
+    <ParamPanel current={{ rows: 83, cols: 87 }} params={DEFAULT_PARAMS} sizes={[]}
+                faceHint={{ cells_wide: 32, min_cells: 30, too_small: false, suggested_long_side: null }}
+                onChange={() => {}} />);
+  expect(screen.queryByRole("note")).toBeNull();
+  rerender(<ParamPanel current={{ rows: 83, cols: 87 }} params={DEFAULT_PARAMS} sizes={[]}
+                       faceHint={null} onChange={() => {}} />);
+  expect(screen.queryByRole("note")).toBeNull();
+});

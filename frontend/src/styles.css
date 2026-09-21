@@ -1151,3 +1151,19 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
   font-variant-numeric: tabular-nums;
 }
 .size-readout span { color: var(--ink-mute); }
+
+/* 脸太小的提示：黄色左边条，和"花钱前看一眼"的蓝色提示区分开——这条是"照做效果更好" */
+.face-hint {
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-sunk);
+  border: var(--bd) solid var(--peg);
+  border-left: var(--sp-1) solid var(--warn);
+}
+.face-hint p { margin: 0 0 var(--sp-2); }
+.face-hint b { background: var(--warn); padding: 0 2px; }
+.face-hint button {
+  padding: var(--sp-1) var(--sp-2);
+  border-width: var(--bd);
+  box-shadow: 3px 3px 0 var(--ink);
+}

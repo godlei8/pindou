@@ -126,6 +126,7 @@ def generate(db: Session, project: Project, params: Params,
         grid=grid_to_db(result.grid),
         color_stats={str(k): int(v) for k, v in result.color_stats.items()},
         buildability=_analyze_report(result.grid, palette, params),
+        faces=[f.to_dict() for f in result.faces],
     )
     db.add(pat)
     db.flush()
@@ -136,7 +137,7 @@ def _child(db: Session, parent: Pattern, grid: np.ndarray, palette: CorePalette,
            params: Params, origin: str, **extra) -> Pattern:
     child = Pattern(
         project_id=parent.project_id, ai_render_id=parent.ai_render_id, parent_id=parent.id,
-        origin=origin, params=parent.params, grid=grid_to_db(grid),
+        origin=origin, params=parent.params, grid=grid_to_db(grid), faces=parent.faces,
         color_stats={str(k): int(v) for k, v in color_counts(grid).items()},
         buildability=_analyze_report(grid, palette, params), **extra)
     db.add(child)
@@ -256,3 +257,22 @@ def thumb_png(pattern: Pattern, palette: CorePalette) -> bytes:
 def export_pdf(pattern: Pattern, palette: CorePalette, bead_mm: float = 5.0) -> bytes:
     return core_pdf.render_pdf(grid_from_db(pattern.grid), palette,
                                core_pdf.PdfOptions(bead_mm=bead_mm))
+
+
+def face_hint(pattern: Pattern) -> dict | None:
+    """最大那张脸在这张图纸上有多宽；太窄就给出建议的长边格数。
+
+    58 格拍半身时脸可能只有二十来格宽，眉眼之间那条皮肤不到一格——眼睛怎么算都会糊。
+    这是分辨率的极限，算法救不回来，只能明确告诉用户该调到多少格。"""
+    from app.core import face as face_mod
+    if not pattern.faces or not pattern.grid:
+        return None
+    f = pattern.faces[0]
+    rows, cols = len(pattern.grid), len(pattern.grid[0])
+    fc = face_mod.Face(box=tuple(f["box"]), landmarks=tuple(map(tuple, f["landmarks"])),
+                       score=f["score"])
+    cells = face_mod.face_cells_wide(fc, cols)
+    too_small = cells < face_mod.MIN_FACE_CELLS
+    return {"cells_wide": cells, "min_cells": face_mod.MIN_FACE_CELLS, "too_small": too_small,
+            "suggested_long_side": (min(200, face_mod.suggested_long_side(fc, rows, cols))
+                                    if too_small else None)}

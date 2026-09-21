@@ -77,6 +77,8 @@ export interface Pattern {
   /** 这张图纸是基于哪张 AI 重绘图算的。null = 基于原图。
    *  改参数重算时必须带上它，否则会悄悄退回原图。 */
   ai_render_id: string | null;
+  /** 检测到人脸时：脸在这张图纸上有多宽，太窄时建议调到多少格。没检测到人脸为 null。 */
+  face_hint?: FaceHint | null;
   /** 只有重算接口会带：这次顺手替换掉（删除）的过渡版本。 */
   replaced_id?: string | null;
   params: PatternParams;
@@ -123,4 +125,11 @@ export interface SizeSuggestion {
 export interface EditCell {
   cell: [number, number];
   to: number | null;
+}
+
+export interface FaceHint {
+  cells_wide: number;
+  min_cells: number;
+  too_small: boolean;
+  suggested_long_side: number | null;
 }

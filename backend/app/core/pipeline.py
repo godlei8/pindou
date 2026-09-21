@@ -3,7 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from app.core import background, detect, downsample, image_io
+from app.core import background, detect, downsample, face, image_io
 from app.core.assign import assign_labels
 from app.core.buildability import analyze
 from app.core.color import pairwise_delta_e, srgb_to_lab, srgb_to_oklab
@@ -61,7 +61,11 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
         if 0 <= r < rows and 0 <= c < cols and cells.mask[r, c]:
             locked[r, c] = int(np.argmin(cost[r, c]))
 
-    local = assign_labels(cost, cells.mask, params.smoothness, locked)
+    # 五官开小灶：眼睛、鼻子、嘴巴周围原图反差明显的边罚得轻，单格瞳孔、鼻孔不被当杂点抹掉。
+    # 像素图输入不做：那本来就是一格一格画好的，不需要也检测不准。检测失败时 faces=[]，一切照旧。
+    faces = [] if kind == "pixel_art" else face.detect_faces(rgba)
+    edge_weight = face.feature_edge_weights(faces, lab, cells.mask)
+    local = assign_labels(cost, cells.mask, params.smoothness, locked, edge_weight=edge_weight)
     grid[cells.mask] = working[local[cells.mask]]
 
     protected_colors = {int(grid[r, c]) for r, c in params.protected_cells
@@ -73,10 +77,11 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
     grid, _ = merge_small_colors(grid, palette.lab, params.small_color_threshold,
                                  protected=protected_colors)
 
-    return _finish(grid, cells.rgb, params, palette, kind)
+    return _finish(grid, cells.rgb, params, palette, kind, faces)
 
 
-def _finish(grid, cell_rgb, params: Params, palette: Palette, kind: str) -> PatternResult:
+def _finish(grid, cell_rgb, params: Params, palette: Palette, kind: str,
+            faces: list | None = None) -> PatternResult:
     counts = color_counts(grid)
     try:
         report = attach_patches(
@@ -88,7 +93,7 @@ def _finish(grid, cell_rgb, params: Params, palette: Palette, kind: str) -> Patt
         report = None
     working = [c for c, _ in sorted(counts.items(), key=lambda kv: -kv[1])]
     return PatternResult(grid=grid, working_palette=working, color_stats=counts, report=report,
-                         params=params, input_kind=kind, cell_rgb=cell_rgb)
+                         params=params, input_kind=kind, cell_rgb=cell_rgb, faces=faces or [])
 
 
 def apply_edits(result: PatternResult, edits: list[tuple[int, int, int]],
@@ -96,7 +101,7 @@ def apply_edits(result: PatternResult, edits: list[tuple[int, int, int]],
     grid = result.grid.copy()
     for r, c, v in edits:
         grid[r, c] = v
-    return _finish(grid, result.cell_rgb, result.params, palette, result.input_kind)
+    return _finish(grid, result.cell_rgb, result.params, palette, result.input_kind, result.faces)
 
 
 def suggest_sizes(image, base: int) -> list[dict]:

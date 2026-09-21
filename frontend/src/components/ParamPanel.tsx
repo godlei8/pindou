@@ -1,4 +1,4 @@
-import type { PatternParams, SizeSuggestion } from "../api/types";
+import type { FaceHint, PatternParams, SizeSuggestion } from "../api/types";
 import { BEAD_MM, gridText, physicalText } from "../lib/size";
 
 interface Props {
@@ -6,11 +6,13 @@ interface Props {
   sizes: SizeSuggestion[];
   /** 当前图纸的实际尺寸（格）。还没出图时为 null。 */
   current: { rows: number; cols: number } | null;
+  /** 检测到的人脸在当前格数下有多宽。 */
+  faceHint?: FaceHint | null;
   disabled?: boolean;
   onChange(next: PatternParams): void;
 }
 
-export function ParamPanel({ params, sizes, current, disabled, onChange }: Props) {
+export function ParamPanel({ params, sizes, current, faceHint, disabled, onChange }: Props) {
   const set = <K extends keyof PatternParams>(k: K, v: PatternParams[K]) =>
     onChange({ ...params, [k]: v });
 
@@ -41,6 +43,21 @@ export function ParamPanel({ params, sizes, current, disabled, onChange }: Props
           <b>{gridText(current.rows, current.cols)}</b>
           <span>实物 {physicalText(current.rows, current.cols)}（按 {BEAD_MM} mm 豆）</span>
         </p>
+      )}
+
+      {/* 脸太小是分辨率的极限：眉眼之间那条皮肤不到一格，算法怎么算眼睛都会糊。
+          明确告诉用户调到多少格，而不是让他自己去试。 */}
+      {faceHint?.too_small && faceHint.suggested_long_side && (
+        <div className="face-hint" role="note">
+          <p>
+            检测到人脸，只有 <b>{faceHint.cells_wide} 格</b>宽。
+            脸宽不到 {faceHint.min_cells} 格时五官容易糊，尤其是眼睛。
+          </p>
+          <button type="button" disabled={disabled}
+                  onClick={() => set("grid_long_side", faceHint.suggested_long_side!)}>
+            长边调到 {faceHint.suggested_long_side} 格
+          </button>
+        </div>
       )}
 
       {sizes.length > 0 && (
