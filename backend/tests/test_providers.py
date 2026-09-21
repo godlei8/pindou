@@ -339,3 +339,57 @@ def test_get_provider_by_name_still_raises_when_its_key_is_missing(monkeypatch, 
     monkeypatch.setenv("DS_ONLY_KEY", "sk-ds")
     with pytest.raises(pbase.ProviderError):
         pbase.get_provider("ark")
+
+
+# ---------- dashscope_multimodal（千问图像编辑，同步接口） ----------
+
+_QWEN_URL = "https://ds.test/api/v1/services/aigc/multimodal-generation/generation"
+
+
+def _qwen_cfg(**extra):
+    return pbase.ProviderConfig(name="qwen", adapter="dashscope_multimodal",
+                                base_url="https://ds.test/api/v1", api_key_env="DS_KEY",
+                                model="qwen-image-2.0", extra=extra)
+
+
+@respx.mock
+def test_qwen_image_sends_image_and_instruction_then_downloads(monkeypatch):
+    import json
+    monkeypatch.setenv("DS_KEY", "sk-ds")
+    call = respx.post(_QWEN_URL).mock(return_value=httpx.Response(200, json={
+        "output": {"choices": [{"finish_reason": "stop", "message": {
+            "role": "assistant", "content": [{"image": "https://cdn.test/q.png"}]}}]},
+        "usage": {"image_count": 1}}))
+    respx.get("https://cdn.test/q.png").mock(
+        return_value=httpx.Response(200, content=_png(), headers={"content-type": "image/png"}))
+
+    r = pbase.build_provider(_qwen_cfg(prompt_extend=False)).redraw(_png(), "扁平插画", {})
+
+    assert r.model == "qwen-image-2.0" and r.image
+    req = call.calls[0].request
+    assert req.headers["authorization"] == "Bearer sk-ds"
+    assert "x-dashscope-async" not in req.headers
+    body = json.loads(req.content)
+    content = body["input"]["messages"][0]["content"]
+    assert content[0]["image"].startswith("data:image/png;base64,")
+    assert "扁平插画" in content[1]["text"]
+    assert body["parameters"] == {"n": 1, "watermark": False, "prompt_extend": False}
+
+
+@respx.mock
+def test_qwen_image_error_body_is_not_retryable(monkeypatch):
+    monkeypatch.setenv("DS_KEY", "sk-ds")
+    respx.post(_QWEN_URL).mock(return_value=httpx.Response(
+        400, json={"code": "InvalidParameter", "message": "bad image"}))
+    with pytest.raises(pbase.ProviderError, match="InvalidParameter") as e:
+        pbase.build_provider(_qwen_cfg()).redraw(_png(), "p", {})
+    assert e.value.retryable is False
+
+
+@respx.mock
+def test_qwen_image_throttled_is_retryable(monkeypatch):
+    monkeypatch.setenv("DS_KEY", "sk-ds")
+    respx.post(_QWEN_URL).mock(return_value=httpx.Response(429, json={"code": "Throttling"}))
+    with pytest.raises(pbase.ProviderError) as e:
+        pbase.build_provider(_qwen_cfg()).redraw(_png(), "p", {})
+    assert e.value.retryable is True

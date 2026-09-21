@@ -82,6 +82,9 @@ def build_provider(cfg: ProviderConfig) -> ImageProvider:
         return OpenAICompatibleProvider(cfg, api_key)
     if cfg.adapter == "dashscope_native":
         return DashScopeNativeProvider(cfg, api_key)
+    if cfg.adapter == "dashscope_multimodal":
+        from app.providers.dashscope_multimodal import DashScopeMultimodalProvider
+        return DashScopeMultimodalProvider(cfg, api_key)
     raise ProviderError(f"未知的 provider adapter: {cfg.adapter!r}", retryable=False)
 
 

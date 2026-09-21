@@ -1,6 +1,16 @@
 # 复制为 providers.yaml 并填入真实配置；providers.yaml 已被 .gitignore 忽略。
+# 不指定名字时，用第一条配了 key 的。
 # 没有这个文件时系统回退到 FakeProvider（本地 posterize，不联网、不花钱）。
 providers:
+  - name: qwen_image
+    adapter: dashscope_multimodal
+    base_url: https://dashscope.aliyuncs.com/api/v1
+    api_key_env: DASHSCOPE_API_KEY
+    model: qwen-image-2.0
+    extra:
+      prompt_extend: false
+      timeout: 180
+
   - name: ark
     adapter: openai_compatible
     base_url: https://ark.cn-beijing.volces.com/api/v3
