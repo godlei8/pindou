@@ -14,6 +14,7 @@ import { ToolBar } from "../components/ToolBar";
 import { VersionList } from "../components/VersionList";
 import { useEditor } from "../hooks/useEditor";
 import { useElementSize } from "../hooks/useElementSize";
+import { PHONE_QUERY, TOUCH_QUERY, useMediaQuery } from "../hooks/useMediaQuery";
 import { usePattern } from "../hooks/usePattern";
 import { useWorkbenchNav } from "../hooks/useWorkbenchNav";
 import { fitCellPx } from "../lib/draw";
@@ -24,6 +25,19 @@ import type { ZoomMode } from "../lib/zoom";
 const SAFETY_PAD = 2;
 /** 量不到容器时的回退预算（jsdom 没有 ResizeObserver）。 */
 const FALLBACK_BOX = { w: 760, h: 640 };
+
+/** 手机上两侧栏收进标签页：画布常驻上半屏，改参数时图纸一直看得见。 */
+const PHONE_TABS = [
+  ["params", "参数"],
+  ["materials", "清单"],
+  ["issues", "体检"],
+  ["versions", "版本"],
+  ["source", "原图·AI"],
+] as const;
+type PhoneTab = (typeof PHONE_TABS)[number][0];
+
+/** 双指张合超过这个比例才换一档。缩放是整数档位，太灵敏会一下跳好几档。 */
+const PINCH_STEP = 1.25;
 
 export function WorkbenchPage() {
   const { projectId = "" } = useParams();
@@ -52,6 +66,15 @@ export function WorkbenchPage() {
   const [zoom, setZoom] = useState<ZoomMode>("codes");
   /** 正在图上定位的色号索引。点材料清单里的一行就能看见它铺在哪儿。 */
   const [locating, setLocating] = useState<number | null>(null);
+  const isPhone = useMediaQuery(PHONE_QUERY);
+  const isTouch = useMediaQuery(TOUCH_QUERY);
+  const [tab, setTab] = useState<PhoneTab>("params");
+
+  // 触屏默认拖动：画笔当默认的话，想滚一下画布就先画上了一格
+  useEffect(() => {
+    if (isTouch) editor.setTool("pan");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTouch]);
 
   // 后端返回新版本 → 重置编辑基线
   useEffect(() => {
@@ -61,7 +84,8 @@ export function WorkbenchPage() {
 
   // 换了项目才回到默认；同一项目里改参数、切版本时保留用户选的缩放方式——
   // codes / fit 本来就会跟着格数自己调，没必要每出一版就把人弹回去
-  useEffect(() => { setZoom("codes"); }, [projectId]);
+  // 手机例外：画布只有小半屏，看色号只看得到左上角一小块，先给全貌
+  useEffect(() => { setZoom(isPhone ? "fit" : "codes"); }, [projectId, isPhone]);
   useEffect(() => { setLocating(null); }, [patternId]);
 
   const colorMap = useMemo(
@@ -102,6 +126,35 @@ export function WorkbenchPage() {
     return () => wrapNode.removeEventListener("wheel", onWheel);
   }, [wrapNode, cellPx]);
 
+  // 双指缩放。原生监听器 + passive:false，才能拦住浏览器去缩放整个页面。
+  const cellPxRef = useRef(cellPx);
+  cellPxRef.current = cellPx;
+  useEffect(() => {
+    if (!wrapNode) return;
+    let base = 0;
+    const dist = (t: TouchList) =>
+      Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onStart = (e: TouchEvent) => { if (e.touches.length === 2) base = dist(e.touches); };
+    const onMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || base === 0) return;
+      e.preventDefault();
+      const d = dist(e.touches);
+      if (d / base >= PINCH_STEP) { setZoom(zoomIn(cellPxRef.current)); base = d; }
+      else if (base / d >= PINCH_STEP) { setZoom(zoomOut(cellPxRef.current)); base = d; }
+    };
+    const onEnd = (e: TouchEvent) => { if (e.touches.length < 2) base = 0; };
+    wrapNode.addEventListener("touchstart", onStart, { passive: true });
+    wrapNode.addEventListener("touchmove", onMove, { passive: false });
+    wrapNode.addEventListener("touchend", onEnd);
+    wrapNode.addEventListener("touchcancel", onEnd);
+    return () => {
+      wrapNode.removeEventListener("touchstart", onStart);
+      wrapNode.removeEventListener("touchmove", onMove);
+      wrapNode.removeEventListener("touchend", onEnd);
+      wrapNode.removeEventListener("touchcancel", onEnd);
+    };
+  }, [wrapNode]);
+
   function changeParams(next: PatternParams) {
     if (editor.state.dirty &&
         !window.confirm("有未保存的改动，重算参数会丢弃它们。继续？")) return;
@@ -120,79 +173,126 @@ export function WorkbenchPage() {
 
   const selected = editor.state.color;
 
+  const source = p.project && (
+    <SourcePanel
+      projectId={projectId}
+      projectName={p.project.name}
+      aiRenderId={p.aiRenderId}
+      originalQuality={
+        // 只在还看着原图出的图纸时才有意义：已经花过额度就别马后炮了
+        p.pattern && !p.pattern.ai_render_id && p.pattern.buildability
+          ? { score: p.pattern.buildability.score,
+              confetti_pct: p.pattern.buildability.confetti_pct }
+          : null
+      }
+      aiPhase={p.aiPhase}
+      aiError={p.aiError}
+      busy={p.busy}
+      onGenerate={(presetId) => void p.generateWithAi(presetId)}
+      onDismissError={p.dismissAiError}
+    />
+  );
+  const versions = (
+    <VersionList versions={p.versions} currentId={p.pattern?.id ?? null}
+                 disabled={p.busy} onSelect={(id) => void p.selectVersion(id)} />
+  );
+  const params = (
+    <ParamPanel params={p.params} sizes={p.sizes} disabled={p.busy} onChange={changeParams}
+                faceHint={p.pattern?.face_hint ?? null}
+                backgroundNotFound={!!p.pattern?.params.remove_background
+                  && p.pattern.grid.every((row) => row.every((v) => v !== null))}
+                current={p.pattern && p.pattern.grid.length > 0
+                  ? { rows: p.pattern.grid.length, cols: p.pattern.grid[0].length }
+                  : null} />
+  );
+  const issues = (
+    <IssueList buildability={p.pattern?.buildability ?? null} applying={p.busy}
+               onApply={(i) => void p.applyPatch(i)}
+               onFeedback={p.pattern
+                 ? ({ kind, note }) => void p.sendFeedback(kind, note, [])
+                 : undefined} />
+  );
+  const materials = (
+    <MaterialList materials={p.pattern?.materials ?? []}
+                  locating={locating} onLocate={setLocating} />
+  );
+  const exportButtons = p.pattern ? <ExportButtons patternId={p.pattern.id} /> : null;
+
+  const editorColumn = (
+    <div className="editor">
+      {p.error && <p role="alert" className="error">{p.error}</p>}
+      {/* 手机上导出挪进「清单」标签：工具条要压成一行，放不下 */}
+      <ToolBar state={editor.state} saving={saving} onTool={editor.setTool}
+               onUndo={editor.undo} onRedo={editor.redo} onSave={() => void save()}
+               withPan={isTouch}
+               extra={isPhone ? null : exportButtons} />
+      <PalettePicker colors={colorMap} working={working} selected={selected}
+                     codeOf={(i) => codeMap.get(i) ?? String(i)} onSelect={editor.setColor} />
+      <CanvasBar
+        colorCode={selected === null ? null : (codeMap.get(selected) ?? String(selected))}
+        colorHex={selected === null ? null : (colorMap.get(selected) ?? null)}
+        cellPx={cellPx}
+        mode={typeof zoom === "number" ? "manual" : zoom}
+        showsCodes={cellPx >= SHOW_CODES_MIN}
+        canZoomIn={cellPx < MAX_ZOOM}
+        canZoomOut={cellPx > MIN_ZOOM}
+        onZoomIn={() => setZoom(zoomIn(cellPx))}
+        onZoomOut={() => setZoom(zoomOut(cellPx))}
+        onFit={() => setZoom("fit")}
+        onCodes={() => setZoom("codes")}
+      />
+      <div className={`canvas-wrap${editor.state.tool === "pan" ? " is-pan" : ""}`} ref={wrapRef}>
+        <PatternCanvas grid={editor.state.grid} colors={colorMap} cellPx={cellPx}
+                       codeOf={(i) => codeMap.get(i) ?? String(i)}
+                       showCodes={cellPx >= SHOW_CODES_MIN}
+                       highlight={highlight}
+                       protectedCells={editor.state.protectedCells}
+                       onCellDown={(r, c) => editor.applyAt(r, c)}
+                       onCellEnter={(r, c) => editor.applyAt(r, c)}
+                       onPointerUp={() => {}} />
+      </div>
+    </div>
+  );
+
+  if (isPhone) {
+    return (
+      <main className="workbench is-phone">
+        {editorColumn}
+        <div className="phone-tabs" role="tablist" aria-label="面板">
+          {PHONE_TABS.map(([key, label]) => (
+            <button key={key} type="button" role="tab" id={`tab-${key}`}
+                    aria-selected={tab === key} aria-controls="phone-panel"
+                    onClick={() => setTab(key)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="phone-panel" id="phone-panel" role="tabpanel"
+             aria-labelledby={`tab-${tab}`}>
+          {tab === "params" && params}
+          {tab === "materials" && <>
+            {materials}
+            {exportButtons && <section className="panel"><h2>导出</h2>{exportButtons}</section>}
+          </>}
+          {tab === "issues" && issues}
+          {tab === "versions" && versions}
+          {tab === "source" && source}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="workbench">
       <div className="side">
-        {p.project && (
-          <SourcePanel
-            projectId={projectId}
-            projectName={p.project.name}
-            aiRenderId={p.aiRenderId}
-            originalQuality={
-              // 只在还看着原图出的图纸时才有意义：已经花过额度就别马后炮了
-              p.pattern && !p.pattern.ai_render_id && p.pattern.buildability
-                ? { score: p.pattern.buildability.score,
-                    confetti_pct: p.pattern.buildability.confetti_pct }
-                : null
-            }
-            aiPhase={p.aiPhase}
-            aiError={p.aiError}
-            busy={p.busy}
-            onGenerate={(presetId) => void p.generateWithAi(presetId)}
-            onDismissError={p.dismissAiError}
-          />
-        )}
-        <VersionList versions={p.versions} currentId={p.pattern?.id ?? null}
-                     disabled={p.busy} onSelect={(id) => void p.selectVersion(id)} />
+        {source}
+        {versions}
       </div>
-
-      <div className="editor">
-        {p.error && <p role="alert" className="error">{p.error}</p>}
-        <ToolBar state={editor.state} saving={saving} onTool={editor.setTool}
-                 onUndo={editor.undo} onRedo={editor.redo} onSave={() => void save()}
-                 extra={p.pattern ? <ExportButtons patternId={p.pattern.id} /> : null} />
-        <PalettePicker colors={colorMap} working={working} selected={selected}
-                       codeOf={(i) => codeMap.get(i) ?? String(i)} onSelect={editor.setColor} />
-        <CanvasBar
-          colorCode={selected === null ? null : (codeMap.get(selected) ?? String(selected))}
-          colorHex={selected === null ? null : (colorMap.get(selected) ?? null)}
-          cellPx={cellPx}
-          mode={typeof zoom === "number" ? "manual" : zoom}
-          showsCodes={cellPx >= SHOW_CODES_MIN}
-          canZoomIn={cellPx < MAX_ZOOM}
-          canZoomOut={cellPx > MIN_ZOOM}
-          onZoomIn={() => setZoom(zoomIn(cellPx))}
-          onZoomOut={() => setZoom(zoomOut(cellPx))}
-          onFit={() => setZoom("fit")}
-          onCodes={() => setZoom("codes")}
-        />
-        <div className="canvas-wrap" ref={wrapRef}>
-          <PatternCanvas grid={editor.state.grid} colors={colorMap} cellPx={cellPx}
-                         codeOf={(i) => codeMap.get(i) ?? String(i)}
-                         showCodes={cellPx >= SHOW_CODES_MIN}
-                         highlight={highlight}
-                         protectedCells={editor.state.protectedCells}
-                         onCellDown={(r, c) => editor.applyAt(r, c)}
-                         onCellEnter={(r, c) => editor.applyAt(r, c)}
-                         onPointerUp={() => {}} />
-        </div>
-      </div>
-
+      {editorColumn}
       <div className="side">
-        <ParamPanel params={p.params} sizes={p.sizes} disabled={p.busy} onChange={changeParams}
-                    faceHint={p.pattern?.face_hint ?? null}
-                    backgroundNotFound={!!p.pattern?.params.remove_background
-                      && p.pattern.grid.every((row) => row.every((v) => v !== null))}
-                    current={p.pattern && p.pattern.grid.length > 0
-                      ? { rows: p.pattern.grid.length, cols: p.pattern.grid[0].length }
-                      : null} />
-        <IssueList buildability={p.pattern?.buildability ?? null} applying={p.busy}
-                   onApply={(i) => void p.applyPatch(i)}
-                   onFeedback={p.pattern
-                     ? ({ kind, note }) => void p.sendFeedback(kind, note, [])
-                     : undefined} />
-        <MaterialList materials={p.pattern?.materials ?? []}
-                      locating={locating} onLocate={setLocating} />
+        {params}
+        {issues}
+        {materials}
       </div>
     </main>
   );

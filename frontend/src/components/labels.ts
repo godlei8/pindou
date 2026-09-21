@@ -16,6 +16,7 @@ export const ACTION_LABELS: Record<string, string> = {
 };
 
 export const TOOL_LABELS: Record<string, string> = {
+  pan: "拖动",
   brush: "画笔",
   bucket: "油漆桶",
   eyedropper: "吸管",

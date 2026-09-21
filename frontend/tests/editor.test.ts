@@ -162,3 +162,15 @@ describe("resetTo", () => {
     expect(ed.state.protectedCells).toEqual([[0, 0]]);
   });
 });
+
+describe("拖动工具", () => {
+  test("拖动只看不改：不画、不入撤销栈", () => {
+    const ed = createEditor(G);
+    ed.setColor(7);
+    ed.setTool("pan");
+    ed.applyAt(0, 0);
+    expect(ed.state.grid[0][0]).toBe(0);
+    expect(ed.state.dirty).toBe(false);
+    expect(ed.state.canUndo).toBe(false);
+  });
+});
