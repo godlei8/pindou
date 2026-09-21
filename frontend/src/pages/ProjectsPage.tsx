@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 
 import { ApiError, api } from "../api/client";
 import type { Project } from "../api/types";
-import { DropZone } from "../components/DropZone";
+import { IntroPanel } from "../components/IntroPanel";
 import { ProjectCard } from "../components/ProjectCard";
+import { SAMPLES } from "../components/samples";
+import { NewTile, SampleTile } from "../components/StartTiles";
 import { checkImage, useImageIntake } from "../hooks/useImageIntake";
 import type { IntakeSource } from "../hooks/useImageIntake";
 
@@ -20,9 +22,13 @@ function defaultName(file: File, source: IntakeSource, label?: string): string {
   return file.name.replace(/\.[^.]+$/, "") || "未命名";
 }
 
+/** 首页：左栏介绍，右栏干活。
+ *
+ *  原来是一条投图横幅压在一列 960px 的网格上面，宽屏两边全空。
+ *  现在左边固定讲清楚这是什么，右边铺满图纸网格、自己滚动，「新图纸」是网格第一格。 */
 export function ProjectsPage() {
   const navigate = useNavigate();
-  /** null = 还在加载。加载完才决定投图区大还是小，免得老用户先看到一闪大区再缩回去。 */
+  /** null = 还在加载。加载完才决定网格里放示例还是放项目，免得闪一下。 */
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -60,25 +66,34 @@ export function ProjectsPage() {
     setProjects((ps) => (ps ?? []).map((p) => (p.id === id ? updated : p)));
   }
 
-  if (projects === null) return <main className="projects"><p className="loading">加载中…</p></main>;
-
-  const hasProjects = projects.length > 0;
+  const hasProjects = (projects?.length ?? 0) > 0;
 
   return (
-    <main className="projects">
-      <h1 className="sr-only">拼豆图纸生成</h1>
+    <main className="home">
+      <IntroPanel />
 
-      <DropZone compact={hasProjects} busy={busy} onFile={start} />
-      {error && <p role="alert" className="error">{error}</p>}
+      <section className="home-work" aria-labelledby="work-title">
+        {/* 加载完才定标题：否则老用户会先闪一下「从这里开始」再变成「最近的图纸」 */}
+        <h2 id="work-title" className="work-title">
+          {projects === null ? "图纸"
+            : hasProjects ? <>最近的图纸<small>{projects.length} 张</small></>
+            : "从这里开始"}
+        </h2>
+        {error && <p role="alert" className="error">{error}</p>}
 
-      {hasProjects && (
-        <section className="recent">
-          <h2>最近的图纸</h2>
-          <ul className="project-grid">
-            {projects.map((p) => <ProjectCard key={p.id} project={p} onRename={rename} />)}
+        {projects === null ? (
+          <p className="loading">加载中…</p>
+        ) : (
+          <ul className="project-grid" aria-label="图纸">
+            <NewTile busy={busy} onFile={start} />
+            {hasProjects
+              ? projects.map((p) => <ProjectCard key={p.id} project={p} onRename={rename} />)
+              : SAMPLES.map((s) => (
+                  <SampleTile key={s.file} sample={s} disabled={busy} onFile={start} />
+                ))}
           </ul>
-        </section>
-      )}
+        )}
+      </section>
 
       {/* 整页都能投，拖进来时给个明确的落点提示 */}
       {dragging && (

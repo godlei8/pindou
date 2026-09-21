@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -66,18 +66,31 @@ const createdName = (fetchMock: ReturnType<typeof makeFetch>) => {
 describe("首页：进站就能投图", () => {
   beforeEach(() => vi.unstubAllGlobals());
 
-  test("没有项目时投图区占满视线并给出示例图", async () => {
+  test("首页有自己的介绍，不是一上来就一个上传框", async () => {
     vi.stubGlobal("fetch", makeFetch([]));
     mount();
-    await waitFor(() => screen.getByText("把图片拖到这里"));
-    expect(screen.getByRole("button", { name: /示例图「草莓」/ })).toBeTruthy();
-    expect(screen.queryByText("最近的图纸")).toBeNull();
+    await waitFor(() => screen.getByRole("heading", { level: 1 }));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("拼得出来的图纸");
+    // 介绍里的示例是真实输出，数字来自生成脚本，图上的标注和正文对得上
+    expect(screen.getByRole("img", { name: /示例：一朵蘑菇/ })).toBeTruthy();
   });
 
-  test("有项目时投图区收成一条，示例图让位给最近的图纸", async () => {
+  test("没有项目时，网格里是「新图纸」加三张示例卡片", async () => {
+    vi.stubGlobal("fetch", makeFetch([]));
+    mount();
+    await waitFor(() => screen.getByText("从这里开始"));
+    const tiles = within(screen.getByRole("list", { name: "图纸" })).getAllByRole("listitem");
+    expect(tiles).toHaveLength(4);
+    expect(screen.getByRole("button", { name: /开始一张新图纸/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /示例图「草莓」/ })).toBeTruthy();
+  });
+
+  test("有项目时「新图纸」仍是第一格，示例让位给最近的图纸", async () => {
     vi.stubGlobal("fetch", makeFetch());
     mount();
     await waitFor(() => screen.getByText("最近的图纸"));
+    const first = within(screen.getByRole("list", { name: "图纸" })).getAllByRole("listitem")[0];
+    expect(first.textContent).toContain("新图纸");
     expect(screen.queryByRole("button", { name: /示例图/ })).toBeNull();
     expect(screen.getByText("小新")).toBeTruthy();
     expect(screen.getByText(/2 个版本/)).toBeTruthy();
@@ -97,7 +110,7 @@ describe("首页：进站就能投图", () => {
     const fetchMock = makeFetch();
     vi.stubGlobal("fetch", fetchMock);
     const { container } = mount();
-    await waitFor(() => screen.getByText("把图片拖到这里"));
+    await waitFor(() => screen.getByRole("button", { name: /开始一张新图纸/ }));
 
     await userEvent.upload(container.querySelector('input[type="file"]')!, png("avatar.jpg"));
 
@@ -109,7 +122,7 @@ describe("首页：进站就能投图", () => {
     const fetchMock = makeFetch();
     vi.stubGlobal("fetch", fetchMock);
     mount();
-    await waitFor(() => screen.getByText("把图片拖到这里"));
+    await waitFor(() => screen.getByRole("button", { name: /开始一张新图纸/ }));
 
     fireEvent.paste(window, { clipboardData: { files: [png("image.png")] } });
 
@@ -133,7 +146,7 @@ describe("首页：进站就能投图", () => {
     const fetchMock = makeFetch();
     vi.stubGlobal("fetch", fetchMock);
     mount();
-    await waitFor(() => screen.getByText("把图片拖到这里"));
+    await waitFor(() => screen.getByRole("button", { name: /开始一张新图纸/ }));
 
     const dt = { types: ["Files"], files: [png("drag.png")] };
     fireEvent.dragEnter(window, { dataTransfer: dt });
@@ -148,7 +161,7 @@ describe("首页：进站就能投图", () => {
   test("拖的是文字不是文件时，不弹落点提示", async () => {
     vi.stubGlobal("fetch", makeFetch());
     mount();
-    await waitFor(() => screen.getByText("把图片拖到这里"));
+    await waitFor(() => screen.getByRole("button", { name: /开始一张新图纸/ }));
     fireEvent.dragEnter(window, { dataTransfer: { types: ["text/plain"], files: [] } });
     expect(screen.queryByText("松手就开始出图")).toBeNull();
   });
@@ -157,7 +170,7 @@ describe("首页：进站就能投图", () => {
     const fetchMock = makeFetch();
     vi.stubGlobal("fetch", fetchMock);
     mount();
-    await waitFor(() => screen.getByText("把图片拖到这里"));
+    await waitFor(() => screen.getByRole("button", { name: /开始一张新图纸/ }));
 
     fireEvent.paste(window, { clipboardData: { files: [png("a.gif", "image/gif")] } });
 
@@ -169,7 +182,7 @@ describe("首页：进站就能投图", () => {
     const fetchMock = makeFetch();
     vi.stubGlobal("fetch", fetchMock);
     mount();
-    await waitFor(() => screen.getByText("把图片拖到这里"));
+    await waitFor(() => screen.getByRole("button", { name: /开始一张新图纸/ }));
 
     fireEvent.paste(window, { clipboardData: { files: [png("big.png", "image/png", 21 * 1024 * 1024)] } });
 
@@ -180,12 +193,12 @@ describe("首页：进站就能投图", () => {
   test("后端拒绝时显示原文，投图区恢复可用", async () => {
     vi.stubGlobal("fetch", makeFetch(PROJECTS, 400));
     const { container } = mount();
-    await waitFor(() => screen.getByText("把图片拖到这里"));
+    await waitFor(() => screen.getByRole("button", { name: /开始一张新图纸/ }));
 
     await userEvent.upload(container.querySelector('input[type="file"]')!, png());
 
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("图片格式无法识别"));
-    expect(screen.getByText("把图片拖到这里")).toBeTruthy();    // 不卡在"正在上传…"
+    expect(screen.getByText("新图纸")).toBeTruthy();            // 不卡在"正在上传…"
   });
 
   test("点示例图直接开始，名字标明是示例", async () => {

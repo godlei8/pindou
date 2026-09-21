@@ -327,10 +327,10 @@ main { padding: var(--sp-6) var(--sp-4); }
 .toolbar { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 .sizes { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 
-/* ══ 首页：投图区 + 最近的图纸 ═════════════════════════════
-   调研见 docs/research/2026-09-21-entry-flow.md：
-   投图 = 建项目 + 立刻进工作台；三种投法（点选/拖拽/粘贴）；没图给示例；
-   回来的人靠缩略图认图。 */
+/* ══ 首页：左栏介绍，右栏干活 ═════════════════════════════
+   原来是一条投图横幅压在一列 960px 的网格上面，宽屏两边全空。
+   现在左边固定讲清楚这是什么，右边铺满图纸网格、各自滚动（和工作台一样视口锁定）。
+   入口流程的调研见 docs/research/2026-09-21-entry-flow.md。 */
 
 .sr-only {
   position: absolute; width: 1px; height: 1px;
@@ -338,50 +338,90 @@ main { padding: var(--sp-6) var(--sp-4); }
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-/* 不能写 max-width + margin:auto：main 是 flex 子项，横向 auto 外边距会让它收缩到
-   内容宽度，滚动条也跟着缩到页面中间。改成满宽容器、用内边距把内容挤到中间 960px。 */
-.projects {
-  padding-inline: max(var(--sp-4), calc((100% - 960px) / 2));
-}
-
-/* —— 投图区：它本身就是一块底板。「把图放到板上」正是这里的语义。 —— */
-.dropzone { margin-bottom: var(--sp-8); }
-
-.dropzone-target {
+.home {
   display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: var(--sp-3);
-  min-height: 320px;
-  padding: var(--sp-8) var(--sp-6);
-  text-align: center;
-  cursor: pointer;
-  background-color: var(--surface);
-  background-image: radial-gradient(circle at center, var(--peg) 0 3px, transparent 3px);
-  background-size: var(--pitch) var(--pitch);
-  background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2);
+  grid-template-columns: 480px minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+}
+.home > * { min-width: 0; min-height: 0; }
+
+/* —— 左栏：介绍 —— */
+.intro {
+  overflow-y: auto;
+  padding: var(--sp-6) var(--sp-4);
+  background: var(--surface);
+  border-right: var(--bd-2) solid var(--ink);
+}
+.intro-title {
+  margin: 0 0 var(--sp-3);
+  font-size: 36px;
+  line-height: 48px;
+}
+.intro-lead { margin: 0 0 var(--sp-6); color: var(--ink-mute); }
+
+.intro-example { margin: 0 0 var(--sp-4); }
+.intro-sheet {
+  position: relative;
   border: var(--bd-2) solid var(--ink);
   box-shadow: 6px 6px 0 var(--ink);
-  transition: background-color 90ms ease;
+  background: var(--white);
+  line-height: 0;
 }
-.dropzone-target:hover { background-color: color-mix(in srgb, var(--warn) 22%, var(--surface)); }
-.dropzone-target:focus-visible { outline: none; box-shadow: 6px 6px 0 var(--ink), var(--focus); }
+.intro-sheet > img { display: block; width: 100%; height: auto; }
+.intro-example figcaption { margin-top: var(--sp-3); color: var(--ink-mute); }
 
-.dropzone-main {
-  margin: 0;
-  font-size: 24px;
-  line-height: 32px;
-  /* 文字压在点阵上要读得清，给一块实底 */
+/* 原图钉在右上角 */
+.intro-source {
+  position: absolute;
+  top: calc(-1 * var(--sp-3));
+  right: calc(-1 * var(--sp-3));
+  width: 92px;
+  padding: var(--sp-1);
   background: var(--surface);
-  padding: 0 var(--sp-2);
+  border: var(--bd) solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  line-height: 16px;
+  text-align: center;
 }
-.dropzone-sub, .dropzone-hint {
-  margin: 0;
-  background: var(--surface);
-  padding: 0 var(--sp-2);
+.intro-source img { display: block; width: 100%; height: auto; margin-bottom: 2px; }
+
+/* 标注：黄框框住"就是这一格"，编号贴在右上方，不压住那格的色号 */
+.mark-ring {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px var(--warn), 0 0 0 4px var(--ink);
+  pointer-events: none;
 }
-.dropzone-hint { color: var(--ink-mute); }
-.dropzone-pick { margin: 0 var(--sp-1); pointer-events: none; }
+.mark-at { position: absolute; line-height: 16px; pointer-events: none; }
+.mark-at-code { transform: translate(60%, -150%); }
+.mark-at-legend { transform: translate(0, -50%); }   /* 贴在清单标题后面，左缘对齐 */
+
+.mark-badge {
+  display: inline-grid;
+  place-content: center;
+  width: 20px; height: 20px;
+  flex: none;
+  background: var(--ink);
+  color: var(--board);
+  box-shadow: 2px 2px 0 var(--warn);
+  line-height: 16px;
+}
+
+.intro-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
+.intro-notes li { display: grid; grid-template-columns: 20px 1fr; gap: var(--sp-2); align-items: start; }
+.intro-notes p { margin: 2px 0 0; }
+.intro-notes b { background: var(--warn); padding: 0 2px; }
+
+/* —— 右栏：图纸网格 —— */
+.home-work { overflow-y: auto; padding: var(--sp-6) var(--sp-8); }
+.work-title {
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  margin: 0 0 var(--sp-4);
+  font-size: 24px; line-height: 32px;
+  color: var(--ink);
+}
+.work-title small { display: inline; font-size: 12px; }
 
 kbd {
   display: inline-block;
@@ -390,50 +430,15 @@ kbd {
   box-shadow: 2px 2px 0 var(--ink);
   background: var(--surface);
   font: inherit;
+  line-height: 14px;
   margin: 0 2px;
 }
-
-.dropzone.is-busy .dropzone-target { cursor: progress; }
-.dropzone.is-busy .dropzone-target:hover { background-color: var(--surface); }
-
-/* 已有项目：收成一条，把位置让给缩略图 */
-.dropzone.is-compact { margin-bottom: var(--sp-6); }
-.dropzone.is-compact .dropzone-target {
-  min-height: 0;
-  padding: var(--sp-4) var(--sp-6);
-  grid-auto-flow: column;
-  gap: var(--sp-4);
-  box-shadow: 4px 4px 0 var(--ink);
-}
-.dropzone.is-compact .dropzone-main { font-size: 12px; line-height: 16px; }
-
-/* —— 示例图 —— */
-.samples { margin-top: var(--sp-6); text-align: center; }
-.samples > p { margin: 0 0 var(--sp-3); color: var(--ink-mute); }
-.samples ul {
-  list-style: none; margin: 0; padding: 0;
-  display: flex; justify-content: center; gap: var(--sp-4); flex-wrap: wrap;
-}
-.samples button {
-  display: grid;
-  gap: var(--sp-2);
-  padding: var(--sp-2);
-  background: var(--surface);
-}
-.samples img {
-  width: 96px; height: 96px;
-  display: block;
-  border: var(--bd) solid var(--ink);
-}
-
-/* —— 最近的图纸 —— */
-.recent > h2 { color: var(--ink); margin-bottom: var(--sp-3); }
 
 .project-grid {
   list-style: none; margin: 0; padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: var(--sp-4);
+  grid-template-columns: repeat(auto-fill, minmax(208px, 1fr));
+  gap: var(--sp-6) var(--sp-4);
 }
 
 .project-card { position: relative; }
@@ -441,16 +446,23 @@ kbd {
 .card-body {
   display: grid;
   gap: var(--sp-1);
+  width: 100%;
   padding: var(--sp-3);
   background: var(--surface);
   border: var(--bd) solid var(--ink);
   box-shadow: 4px 4px 0 var(--ink);
   text-decoration: none;
+  text-align: left;
   color: var(--ink);
+  font: inherit;
+  cursor: pointer;
   transition: transform 90ms ease, box-shadow 90ms ease, background 90ms ease;
 }
-a.card-body:hover { background: var(--warn); transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
-a.card-body:focus-visible { outline: none; box-shadow: 4px 4px 0 var(--ink), var(--focus); }
+a.card-body:hover, div.card-body:hover, button.card-body:hover:not(:disabled) {
+  background: var(--warn); transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink);
+}
+.card-body:focus-visible { outline: none; box-shadow: 4px 4px 0 var(--ink), var(--focus); }
+button.card-body:disabled { opacity: .6; cursor: progress; }
 
 /* 缩略图：底下垫透明棋盘格（空格是透明的），每格 1 像素的图纸按 pixelated 放大 */
 .thumb {
@@ -462,19 +474,39 @@ a.card-body:focus-visible { outline: none; box-shadow: 4px 4px 0 var(--ink), var
   border: var(--bd) solid var(--ink);
   overflow: hidden;
 }
-.thumb img { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; }
+.thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .thumb img.is-pattern { image-rendering: pixelated; }
 
-.card-body .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 40px; }
+.card-body .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-body .meta { color: var(--ink-mute); }
 .card-body input { width: 100%; }
 .card-error { color: var(--accent); }
 
-/* 改名按钮浮在卡片右下角的名字那一行，但在链接外面 */
+/* 「新图纸」：缩略图位置是一块空底板，中间一个由五颗豆拼成的「+」 */
+.tile-new-thumb {
+  background-color: var(--surface);
+  background-image: radial-gradient(circle at center, var(--peg) 0 3px, transparent 3px);
+  background-size: var(--pitch) var(--pitch);
+  background-position: calc(var(--pitch) / 2) calc(var(--pitch) / 2);
+}
+.tile-new .card-body { border-style: dashed; }
+.tile-new .meta kbd:first-of-type { margin-left: 0; }
+.tile-new .meta span { white-space: nowrap; }
+.tile-new .card-body[aria-disabled="true"] { cursor: progress; }
+.bead-plus { display: inline-grid; gap: 2px; }
+.bead-plus-row { display: flex; gap: 2px; }
+.bead-plus .bead { width: 28px; height: 28px; }
+.tile-new .card-body:hover .bead-plus .bead:not(.is-empty) {
+  background: var(--bead);           /* 悬停时"熨"一下：环闭合 */
+  border-radius: 3px;
+}
+
+/* 改名按钮钉在缩略图右上角（在链接外面）。原来按"离底部多少"定位，
+   元信息一换行成两行，按钮就压到元信息上了；钉在缩略图角上不受文字影响。 */
 .card-rename {
   position: absolute;
-  right: var(--sp-3);
-  bottom: calc(var(--sp-3) + 18px);
+  top: calc(var(--sp-3) + var(--sp-1));
+  right: calc(var(--sp-3) + var(--sp-1));
   padding: 0 var(--sp-1);
   border-width: var(--bd);
   box-shadow: 2px 2px 0 var(--ink);
@@ -504,6 +536,15 @@ a.card-body:focus-visible { outline: none; box-shadow: 4px 4px 0 var(--ink), var
   background: var(--surface);
   border: var(--bd-2) solid var(--ink);
   box-shadow: 6px 6px 0 var(--ink);
+}
+
+/* 窄屏：上下排，介绍在上、网格在下，页面正常滚动 */
+@media (max-width: 1100px) {
+  .home { grid-template-columns: minmax(0, 1fr); height: auto; overflow: visible; }
+  .intro, .home-work { overflow: visible; }
+  .intro { border-right: none; border-bottom: var(--bd-2) solid var(--ink); }
+  .intro-example { max-width: 480px; }
+  .home-work { padding: var(--sp-6) var(--sp-4); }
 }
 
 /* ══ 工作台 ═════════════════════════════════════════════════ */
@@ -809,7 +850,7 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
     animation-duration: 1ms !important;
   }
   .sprite.is-fused .bead:not(.is-empty) { transform: none; }
-  button:hover, .btn:hover, a.card-body:hover, .swatch:hover { transform: none; }
+  button:hover, .btn:hover, .card-body:hover, .swatch:hover { transform: none; }
 }
 
 /* ══ AI 重绘 ════════════════════════════════════════════════ */
@@ -959,20 +1000,20 @@ canvas { display: block; image-rendering: pixelated; cursor: crosshair; touch-ac
 /* ══ 滚动条 ═════════════════════════════════════════════════
    默认滚动条是圆的、带渐变，跟这套风格格格不入。 */
 
-.workbench .side, .canvas-wrap {
+.workbench .side, .canvas-wrap, .intro, .home-work {
   scrollbar-width: thin;
   scrollbar-color: var(--ink) var(--surface-sunk);
 }
-.workbench .side::-webkit-scrollbar, .canvas-wrap::-webkit-scrollbar { width: 12px; height: 12px; }
-.workbench .side::-webkit-scrollbar-track, .canvas-wrap::-webkit-scrollbar-track {
+.workbench .side::-webkit-scrollbar, .canvas-wrap::-webkit-scrollbar, .intro::-webkit-scrollbar, .home-work::-webkit-scrollbar { width: 12px; height: 12px; }
+.workbench .side::-webkit-scrollbar-track, .canvas-wrap::-webkit-scrollbar-track, .intro::-webkit-scrollbar-track, .home-work::-webkit-scrollbar-track {
   background: var(--surface-sunk);
 }
-.workbench .side::-webkit-scrollbar-thumb, .canvas-wrap::-webkit-scrollbar-thumb {
+.workbench .side::-webkit-scrollbar-thumb, .canvas-wrap::-webkit-scrollbar-thumb, .intro::-webkit-scrollbar-thumb, .home-work::-webkit-scrollbar-thumb {
   background: var(--ink);
   border: 2px solid var(--surface-sunk);
   border-radius: 0;
 }
-.workbench .side::-webkit-scrollbar-corner, .canvas-wrap::-webkit-scrollbar-corner {
+.workbench .side::-webkit-scrollbar-corner, .canvas-wrap::-webkit-scrollbar-corner, .intro::-webkit-scrollbar-corner, .home-work::-webkit-scrollbar-corner {
   background: var(--surface-sunk);
 }
 
