@@ -10,7 +10,7 @@ from app.core.color import pairwise_delta_e, srgb_to_lab, srgb_to_oklab
 from app.core.merge import color_counts, detect_outline_cells, merge_small_colors
 from app.core.palette import Palette
 from app.core.patches import attach_patches
-from app.core.select import select_palette
+from app.core.select import rescue_salient_colors, select_palette
 from app.core.types import EMPTY, Params, PatternResult
 
 
@@ -47,6 +47,9 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
     lab = _cell_lab(cells.rgb)
     ok = srgb_to_oklab(cells.rgb)
     working = select_palette(ok[cells.mask], palette.oklab, k=params.max_colors)
+    # 给嘴唇这类"小而显眼"、被 k-medoids 漏掉的颜色补名额（不突破 max_colors）
+    working, rescued = rescue_salient_colors(ok, cells.mask, palette.oklab, working,
+                                             max_colors=params.max_colors)
     k = len(working)
     cost = pairwise_delta_e(lab.reshape(-1, 3), palette.lab[working]).reshape(rows, cols, k)
 
@@ -65,6 +68,8 @@ def run(image, params: Params, palette: Palette | None = None) -> PatternResult:
                         if 0 <= r < rows and 0 <= c < cols and grid[r, c] != EMPTY}
     if palette.clear_index is not None:
         protected_colors.add(palette.clear_index)
+    # 补进来的特征色往往只有几颗豆，低于小色号阈值也不能合并掉——那正是人眼最先看的地方
+    protected_colors.update(rescued)
     grid, _ = merge_small_colors(grid, palette.lab, params.small_color_threshold,
                                  protected=protected_colors)
 
